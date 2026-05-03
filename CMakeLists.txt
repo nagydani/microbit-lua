@@ -267,3 +267,67 @@ set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 set(CMAKE_EXE_EXPORTS_C_FLAG "")
 set(CMAKE_EXE_EXPORTS_CXX_FLAG "")
+
+# -----------------------------
+# Lua dependency (manual CODAL-style extension)
+# -----------------------------
+
+set(LUA_VERSION 5.1.5)
+set(LUA_TARBALL lua-${LUA_VERSION}.tar.gz)
+set(LUA_URL https://www.lua.org/ftp/${LUA_TARBALL})
+
+set(LUA_DIR ${CMAKE_SOURCE_DIR}/${LIB_DEST}/lua-${LUA_VERSION})
+set(LUA_SRC_DIR ${LUA_DIR}/src)
+set(LUA_ARCHIVE ${CMAKE_SOURCE_DIR}/${LIB_DEST}/${LUA_TARBALL})
+
+# download tarball if missing
+if(NOT EXISTS ${LUA_ARCHIVE})
+    message(STATUS "Downloading Lua ${LUA_VERSION}...")
+    file(DOWNLOAD
+        ${LUA_URL}
+        ${LUA_ARCHIVE}
+        SHOW_PROGRESS
+    )
+endif()
+
+# extract if missing
+if(NOT EXISTS ${LUA_DIR})
+    message(STATUS "Extracting Lua ${LUA_VERSION}...")
+
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf ${LUA_ARCHIVE}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/${LIB_DEST}
+    )
+endif()
+
+set(LUA_CORE_SOURCES
+    lapi.c lcode.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c lmem.c
+    lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c ltm.c
+    lundump.c lvm.c lzio.c
+    lauxlib.c lbaselib.c lmathlib.c lstrlib.c ltablib.c linit.c
+)
+
+# prepend full paths
+set(LUA_SOURCES "")
+foreach(f ${LUA_CORE_SOURCES})
+    list(APPEND LUA_SOURCES ${LUA_SRC_DIR}/${f})
+endforeach()
+
+add_library(lua STATIC ${LUA_SOURCES})
+
+target_include_directories(lua PUBLIC
+    ${LUA_SRC_DIR}
+)
+
+# target_compile_definitions(lua PRIVATE
+#     LUA_ANSI
+# )
+
+target_compile_options(lua PRIVATE
+    -Os
+    -ffunction-sections
+    -fdata-sections
+    -fno-exceptions
+)
+
+target_link_libraries(MICROBIT lua)
