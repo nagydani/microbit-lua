@@ -4,12 +4,42 @@ extern "C" {
 #include "lualib.h"
 }
 
-#include "MicroBit.h"
-
 // only defined in Lua version >=5.2
 #define LUA_OK 0
 
+#include "MicroBit.h"
+#include "MicroBitBLEManager.h"
+#include "MicroBitUARTService.h"
+
 MicroBit uBit;
+
+// BLE manager (initializes SoftDevice / BLE stack)
+MicroBitBLEManager bleManager();
+
+// UART service (Nordic UART over BLE)
+MicroBitUARTService *uart;
+
+void onBLEConnected(MicroBitEvent)
+{
+    uBit.display.print("C");  // Connected
+}
+
+void onBLEDisconnected(MicroBitEvent)
+{
+    uBit.display.print("D");  // Disconnected
+}
+
+void onDataReceived(MicroBitEvent)
+{
+    // Read incoming BLE data (RX characteristic)
+    ManagedString msg = uart->readUntil("\n");
+
+    // Echo to LED display
+    uBit.display.scrollAsync(msg);
+
+    // Echo back to laptop (TX notify)
+    uart->send("echoing: " + msg);
+}
 
 /* -----------------------------
    Lua -> CODAL bridge function
@@ -25,11 +55,6 @@ static void register_lua_api(lua_State *L) {
     lua_register(L, "scroll", l_scroll);
 }
 
-static void idle_loop() {
-  while (1) {
-    uBit.sleep(1000);
-  }
-}
 
 static int lua_panic_handler(lua_State *L) {
     (void)L;
@@ -38,8 +63,35 @@ static int lua_panic_handler(lua_State *L) {
     }
 }
 
+void setup_ble_echo_service() {
+    // Create UART service over BLE
+    uart = new MicroBitUARTService(*uBit.ble, 32, 32);
+    uart->eventOn("\n");
+
+    // Register event handlers
+    uBit.messageBus.listen(
+        MICROBIT_ID_BLE,
+        MICROBIT_BLE_EVT_CONNECTED,
+        onBLEConnected
+    );
+
+    uBit.messageBus.listen(
+        MICROBIT_ID_BLE,
+        MICROBIT_BLE_EVT_DISCONNECTED,
+        onBLEDisconnected
+    );
+
+    uBit.messageBus.listen(
+        MICROBIT_ID_BLE_UART,
+        MICROBIT_UART_S_EVT_DELIM_MATCH,
+        onDataReceived
+    );
+}
+
 int main() {
     uBit.init();
+
+    setup_ble_echo_service();
 
     /* Create Lua state using CODAL heap */
     lua_State *L = luaL_newstate();
@@ -58,9 +110,13 @@ int main() {
     register_lua_api(L);
 
     /* Example Lua script controlling LEDs */
-    const char *script =
-        "scroll('Lua speaking')\n"
-        "scroll('...')\n";
+    const char *script = R"(
+scroll('Lua alive')
+while true do
+  sleep(5000)
+  scroll('tick')
+end
+)";
 
     if (luaL_dostring(L, script) != LUA_OK) {
         const char *err = lua_tostring(L, -1);
@@ -73,5 +129,5 @@ int main() {
 
     uBit.display.scroll("Lua exited");
 
-    idle_loop();
+    release_fiber();
 }
