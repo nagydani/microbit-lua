@@ -18,6 +18,7 @@ RUN apt-get update -qq && \
       git \
       make \
       cmake \
+      less \
       python3 \
       python3-pip \
       gcc-arm-none-eabi \
