@@ -7,6 +7,12 @@ extern "C" {
 // only defined in Lua version >=5.2
 #define LUA_OK 0
 
+// these come from the linker, but we need to define them
+extern const unsigned char _binary_source_lua_script_lua_start[];
+extern const unsigned char _binary_source_lua_script_lua_end[];
+// size is weird, so we don't use it (its address is the value...)
+// extern const unsigned char _binary_source_lua_script_lua_size[];
+
 #include "MicroBit.h"
 #include "MicroBitBLEManager.h"
 #include "MicroBitUARTService.h"
@@ -117,19 +123,28 @@ int main() {
 
     register_lua_api(L);
 
-    /* Example Lua script controlling LEDs */
-    const char *script = R"(
-scroll('Lua alive')
-while true do
-  sleep(5000)
-  scroll('tick')
-end
-)";
+    int scriptLength =
+        _binary_source_lua_script_lua_end -
+        _binary_source_lua_script_lua_start;
 
-    if (luaL_dostring(L, script) != LUA_OK) {
-        const char *err = lua_tostring(L, -1);
+    if (luaL_loadbuffer(L, (const char*)_binary_source_lua_script_lua_start,
+                        scriptLength, "embedded") == LUA_OK)
+    {
+        if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK)
+        {
+            const char *err = lua_tostring(L, -1);
+            uBit.display.scroll("Lua error!");
+            if (err) {
+                uBit.display.scroll(err);
+            }
+        }
+    }
+    else
+    {
+        const char* err = lua_tostring(L, -1);
+        uBit.display.scroll("Compile error: ");
         if (err) {
-            uBit.display.scroll("Lua error");
+            uBit.display.scroll(err);
         }
     }
 

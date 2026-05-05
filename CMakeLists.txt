@@ -319,4 +319,27 @@ target_compile_options(lua PRIVATE
     -fno-exceptions
 )
 
-target_link_libraries(MICROBIT lua)
+target_link_libraries(${CODAL_OUTPUT_NAME}
+  lua
+  ${CMAKE_BINARY_DIR}/lua-script.o
+)
+
+# ----------------------
+# Link in the lua script
+# ----------------------
+
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/lua-script.o
+    COMMAND arm-none-eabi-ld -r -b binary
+            -o ${CMAKE_BINARY_DIR}/lua-script.o
+            source/lua-script.lua
+    DEPENDS ${CMAKE_SOURCE_DIR}/source/lua-script.lua
+    # it's needed to avoid the symbols encoding the absolute path; i.e. unpredictable
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/
+)
+
+add_custom_target(lua_script_obj
+    DEPENDS ${CMAKE_BINARY_DIR}/lua-script.o
+)
+
+add_dependencies(${CODAL_OUTPUT_NAME} lua_script_obj)
