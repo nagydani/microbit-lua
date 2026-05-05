@@ -45,16 +45,24 @@ void onDataReceived(MicroBitEvent)
    Lua -> CODAL bridge function
    ----------------------------- */
 
-static int l_scroll(lua_State *L) {
-    uBit.display.scroll(luaL_checkstring(L, 1));
-    return 0;
-}
+#define LUA_FUNCTION_LIST					\
+    X(sleep,  { int ms = (int)luaL_checkinteger(L, 1);		\
+                uBit.sleep(ms);					\
+                return 0;					\
+              })						\
+    X(scroll, { uBit.display.scroll(luaL_checkstring(L, 1));	\
+                return 0;					\
+              })
 
-/* Register functions into Lua */
+#define X(name, body) static int l_##name(lua_State *L) body
+LUA_FUNCTION_LIST
+#undef X
+
+#define X(name, body) lua_register(L, #name, l_##name);
 static void register_lua_api(lua_State *L) {
-    lua_register(L, "scroll", l_scroll);
+    LUA_FUNCTION_LIST
 }
-
+#undef X
 
 static int lua_panic_handler(lua_State *L) {
     (void)L;
