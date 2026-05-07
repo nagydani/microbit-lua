@@ -1,0 +1,118 @@
+# -*- mode: org; coding: utf-8-unix -*-
+
+https://github.com/nagydani/microbit-lua/
+
+* BLE #bluetooth
+guix shell python python-bleak
+
+https://github.com/lancaster-university/microbit-v2-samples/issues/109
+
+    "config":{
+        "DEVICE_BLE": 1,
+        "MICROBIT_BLE_ENABLED" : 1,
+        "MICROBIT_BLE_PAIRING_MODE": 1,
+        "MICROBIT_BLE_DFU_SERVICE": 1,
+        "MICROBIT_BLE_DEVICE_INFORMATION_SERVICE": 1,
+        "MICROBIT_BLE_EVENT_SERVICE" : 1,
+        "MICROBIT_BLE_PARTIAL_FLASHING" : 0,
+        "MICROBIT_BLE_OPEN": 1
+    },
+** python side for testing the echo service
+#!/usr/bin/env python3
+
+import asyncio
+from bleak import BleakClient, BleakScanner
+
+UART_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+UART_RX_UUID      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+UART_TX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+
+BLE_MAX_CHUNK_SIZE = 20  # safe BLE payload size
+
+def ble_rx_handler(sender, data):
+    text = data.decode(errors="ignore")
+    print(f"\r[micro:bit] {text}\n", end="", flush=True)
+
+
+async def stdin_loop(client):
+    loop = asyncio.get_running_loop()
+
+    while True:
+        msg = await loop.run_in_executor(None, input, "> ")
+        data = msg.encode() + b"\n"
+
+        # chunk the message
+        for i in range(0, len(data), BLE_MAX_CHUNK_SIZE):
+            chunk = data[i:i + BLE_MAX_CHUNK_SIZE]
+            await client.write_gatt_char(UART_RX_UUID, chunk)
+
+
+async def main():
+    print("Scanning for micro:bit...")
+
+    devices = await BleakScanner.discover()
+
+    micorbit = None
+    for d in devices:
+        # print(f"[device] {d}\n")
+        if d.name and "micro:bit" in d.name.lower():
+            micorbit = d
+            break
+
+    if not micorbit:
+        print("No micro:bit found")
+        return
+
+    print(f"Connecting to {micorbit.name} ({micorbit.address})")
+
+    async with BleakClient(micorbit.address) as ble:
+        print("Connected")
+
+        # subscribe to notifications
+        await ble.start_notify(UART_TX_UUID, ble_rx_handler)
+
+        print("Ready, printing incoming messages as they arrive.\n")
+
+        # run stdin loop concurrently with BLE
+        await stdin_loop(ble)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+* build
+rm -rf build
+cmake -B build
+
+clean rebuild:
+rm -rf build/ && cmake -B build && cmake --build build -j
+
+verbose build:
+cmake --build build -v
+* flashing
+udisksctl mount -b $(lsblk -o NAME,LABEL | awk '$2=="MICROBIT"{print "/dev/"$1}') && \
+  cp MICROBIT.hex /run/media/${USER}/MICROBIT/
+* CODAL
+** config
+defaults:
+https://github.com/lancaster-university/codal-microbit-v2/blob/master/inc/MicroBitConfig.h#L162
+https://github.com/microbit-foundation/codal-microbit-nrf5sdk/blob/master/sdk_config/sdk_config.h
+
+Some useful ones for debugging Bluetooth listed here:
+https://github.com/lancaster-university/codal-microbit-v2/pull/52#issuecomment-778195851
+* alternatives
+** lua
+on older v1.5 microbit, without Codal, i.e. directly on the metal
+https://github.com/SaitoYutaka/lua-on-microbit
+
+embedded lua. i think its main point is a HAL that makes portability much better.
+https://github.com/elua/elua
+
+embedded Lua Engine for IoT devices, with many components and low memory requirements (16K RAM, 128K Flash)
+https://github.com/openLuat/LuatOS
+** javascript
+JS for microcontrollers (IDE, remote debugging through bluetooth, etc)
+https://www.espruino.com/MicroBit
+If you have a device that supports Web Bluetooth, you can go directly to the Online Web IDE in your web browser, and can connect with that
+https://espruino.com/ide
+** meta
+https://github.com/carlosperate/awesome-microbit
