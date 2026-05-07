@@ -10,6 +10,17 @@
 #   $ cd /path/to/project/root
 #   $ podman run --tty --rm --volume "$(pwd)":/workspace --workdir /workspace microbit -c ./build.py
 #
+# Updating/publishing the image for the CI:
+#
+# to push the image, you need to log in with a token generated at:
+# https://github.com/settings/tokens
+#   $ podman login ghcr.io -u attila-lendvai # then paste the <personal-access-token>
+#   $ podman push microbit ghcr.io/attila-lendvai/microbit:amd64
+#
+# for the first time go to:
+# https://github.com/attila-lendvai?tab=packages&ecosystem=container
+# and make the image public in the package settings
+#
 # Inside the image you can run build.py to build the project. The
 # current directory from where you run podman will be shared into the
 # image under /workspace, which will also be the default directory
