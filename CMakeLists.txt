@@ -250,6 +250,29 @@ if ("${BUILD_TOOL}" STRGREATER "")
 endif()
 
 #
+# Patch the upstream linker script at build time so the submodule stays vanilla.
+#
+set(LD_UPSTREAM "${PROJECT_SOURCE_DIR}/${LIB_DEST}/codal-microbit-v2/ld/nrf52833-softdevice.ld")
+set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833-softdevice.ld.diff")
+set(LD_PATCHED "${CMAKE_BINARY_DIR}/nrf52833-softdevice-patched.ld")
+
+if(EXISTS "${LD_PATCH_FILE}")
+    # Point the linker to the patched file (replaces the -T flag set by codal-microbit-v2)
+    string(REPLACE "${LD_UPSTREAM}" "${LD_PATCHED}" CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS}")
+    string(REPLACE "${LD_UPSTREAM}" "${LD_PATCHED}" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+
+    add_custom_command(
+        OUTPUT ${LD_PATCHED}
+        COMMAND ${CMAKE_COMMAND} -E copy ${LD_UPSTREAM} ${LD_PATCHED}
+        COMMAND patch --forward --batch ${LD_PATCHED} ${LD_PATCH_FILE}
+        DEPENDS ${LD_UPSTREAM} ${LD_PATCH_FILE}
+        COMMENT "Patching linker script"
+    )
+    add_custom_target(patch_ld DEPENDS ${LD_PATCHED})
+    add_dependencies(${CODAL_OUTPUT_NAME} patch_ld)
+endif()
+
+#
 # Supress the addition of implicit linker flags (such as -rdynamic)
 #
 set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
@@ -330,9 +353,14 @@ target_link_libraries(${CODAL_OUTPUT_NAME}
 
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/lua-script.o
-    COMMAND arm-none-eabi-ld -r -b binary
-            -o ${CMAKE_BINARY_DIR}/lua-script.o
+    COMMAND arm-none-eabi-objcopy
+            -I binary
+            -O elf32-littlearm
+            -B arm
+            # if it remains in the .data section, then it gets copied to RAM
+            --rename-section .data=.lua_script,alloc,load,readonly,data,contents
             source/lua-script.lua
+            ${CMAKE_BINARY_DIR}/lua-script.o
     DEPENDS ${CMAKE_SOURCE_DIR}/source/lua-script.lua
     # it's needed to avoid the symbols encoding the absolute path; i.e. unpredictable
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/

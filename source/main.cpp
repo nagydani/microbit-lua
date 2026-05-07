@@ -1,3 +1,6 @@
+// -*- mode: c++; indent-tabs-mode: nil; -*-
+#include <cstdint>
+
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
@@ -7,11 +10,18 @@ extern "C" {
 // only defined in Lua version >=5.2
 #define LUA_OK 0
 
-// these come from the linker, but we need to define them
-extern const unsigned char _binary_source_lua_script_lua_start[];
-extern const unsigned char _binary_source_lua_script_lua_end[];
-// size is weird, so we don't use it (its address is the value...)
-// extern const unsigned char _binary_source_lua_script_lua_size[];
+// metadata descriptor of the lua-script block in the firmware
+struct LuaMeta {
+    uint32_t magic;
+    uint32_t start;
+    uint32_t end;
+    uint32_t size;
+};
+
+#define LUA_META_MAGIC 0x4C554131
+
+// defined by the linker script
+extern const LuaMeta __lua_meta;
 
 #include "MicroBit.h"
 #include "MicroBitBLEManager.h"
@@ -72,8 +82,9 @@ static void register_lua_api(lua_State *L) {
 
 static int lua_panic_handler(lua_State *L) {
     (void)L;
-    while (1) {
+    while (true) {
         uBit.display.scroll("Lua panic");
+        uBit.sleep(1000);
     }
 }
 
@@ -105,6 +116,16 @@ void setup_ble_echo_service() {
 int main() {
     uBit.init();
 
+    if ((__lua_meta.end - __lua_meta.start != __lua_meta.size)
+        || __lua_meta.magic != LUA_META_MAGIC)
+    {
+        while (true)
+        {
+            uBit.display.scroll("LuaMeta block problem, aborting");
+            uBit.sleep(1000);
+        }
+    }
+
     setup_ble_echo_service();
 
     /* Create Lua state using CODAL heap */
@@ -123,12 +144,8 @@ int main() {
 
     register_lua_api(L);
 
-    int scriptLength =
-        _binary_source_lua_script_lua_end -
-        _binary_source_lua_script_lua_start;
-
-    if (luaL_loadbuffer(L, (const char*)_binary_source_lua_script_lua_start,
-                        scriptLength, "embedded") == LUA_OK)
+    if (luaL_loadbuffer(L, (const char*)__lua_meta.start,
+                        __lua_meta.size, "embedded") == LUA_OK)
     {
         if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK)
         {

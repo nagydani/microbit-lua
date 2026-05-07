@@ -35,6 +35,8 @@ RUN apt-get update -qq && \
       git \
       make \
       cmake \
+      diffutils \
+      patch \
       less \
       python3 \
       python3-pip \
