@@ -1,8 +1,14 @@
 # To build an image:
 #   $ podman build --platform linux/amd64 -t microbit -f Dockerfile .
 #
-# To start and enter that image:
-#   $ podman run  --tty --rm --interactive --volume "$(pwd)":/workspace --workdir /workspace microbit
+# To enter that image:
+#   $ cd /path/to/project/root
+#   $ podman run --tty --rm --interactive --volume "$(pwd)":/workspace --workdir /workspace microbit
+#
+# To build it inside that image:
+#   Note: image entry point is bash, hence the extra -c.
+#   $ cd /path/to/project/root
+#   $ podman run --tty --rm --volume "$(pwd)":/workspace --workdir /workspace microbit -c ./build.py
 #
 # Inside the image you can run build.py to build the project. The
 # current directory from where you run podman will be shared into the
