@@ -8,11 +8,14 @@ Usage: lua hextract <command> [args]
 Commands:
   structure <file> [--verbose]   Show hex file structure, regions, metadata
   extract <file> [<output>]      Extract the Lua payload from the firmware
+  embed <firmware.hex> <script.lua> [<output.hex>] [--overwrite|--in-place]
+                                 Embed a Lua script into the firmware
 
 Options:
   --verbose   Show full record-by-record log
 
-If <output> is "-" or omitted, the payload is written to stdout.
+If <output> is "-" or omitted for extract, the payload is written to stdout.
+If <output.hex> is omitted for embed, you will be prompted to overwrite.
 ]]
 
 -- Constants from linker script (nrf52833-softdevice.ld)
@@ -552,6 +555,247 @@ local function cmd_extract(args)
     return 0
 end
 
+local function calc_checksum(addr, rec_type, data)
+    local sum = #data + bit_and(addr, 0xFF) + bit_rshift(addr, 8) + rec_type
+    for i = 1, #data do
+        sum = sum + data[i]
+    end
+    return bit_and((-sum) % 256, 0xFF)
+end
+
+local function make_hex_line(addr, rec_type, data)
+    local len = #data
+    local cksum = calc_checksum(addr, rec_type, data)
+    local line = string.format(":%02X%04X%02X", len, addr, rec_type)
+    for i = 1, len do
+        line = line .. string.format("%02X", data[i])
+    end
+    line = line .. string.format("%02X", cksum)
+    return line
+end
+
+local function cmd_embed(args)
+    local filepath = args[1]
+    local script_path = args[2]
+    local output_path = args[3]
+    local overwrite = false
+
+    -- Parse flags from args 3 onward
+    local positional = {}
+    for i = 3, #args do
+        if args[i] == "--overwrite" or args[i] == "--in-place" then
+            overwrite = true
+        else
+            table.insert(positional, args[i])
+        end
+    end
+    if not output_path and #positional > 0 then
+        output_path = positional[1]
+    end
+
+    if not filepath or not script_path then
+        io.stderr:write("Error: missing arguments\n")
+        io.stderr:write(USAGE)
+        return 1
+    end
+
+    local parsed, err = parse_hex_file(filepath)
+    if not parsed then
+        io.stderr:write("Error: " .. err .. "\n")
+        return 1
+    end
+
+    local records = parsed.records
+
+    local meta_bytes = read_bytes_from_records(records, LUA_META_ADDR, LUA_META_LEN)
+    local all_zero = true
+    for i = 1, LUA_META_LEN do
+        if meta_bytes[i] ~= 0 then all_zero = false; break end
+    end
+
+    if all_zero then
+        io.stderr:write("Error: no Lua metadata found\n")
+        return 1
+    end
+
+    local magic = u32_le(meta_bytes, 1)
+    local old_start = u32_le(meta_bytes, 5)
+    local old_end = u32_le(meta_bytes, 9)
+
+    if magic ~= LUA_MAGIC then
+        io.stderr:write("Error: invalid metadata magic\n")
+        return 1
+    end
+
+    if old_start >= old_end then
+        io.stderr:write("Error: invalid script range in metadata\n")
+        return 1
+    end
+
+    local script_file = io.open(script_path, "rb")
+    if not script_file then
+        io.stderr:write("Error: cannot open script file: " .. script_path .. "\n")
+        return 1
+    end
+    local script_data = script_file:read("*all")
+    script_file:close()
+    local script_len = #script_data
+
+    local max_size = LUA_META_ADDR - old_start
+    if script_len > max_size then
+        io.stderr:write(string.format(
+            "Error: script too large: %d bytes, max %d bytes\n",
+            script_len, max_size))
+        return 1
+    end
+
+    local new_end = old_start + script_len
+
+    -- Find the segment base used by the old script records
+    local script_segment_base = nil
+    for _, rec in ipairs(records) do
+        if rec.rec_type == 0 and rec.phys_addr then
+            local rec_start = rec.phys_addr
+            local rec_end = rec.phys_addr + rec.byte_count - 1
+            if rec_start < old_end and rec_end >= old_start then
+                script_segment_base = rec.segment_base
+                break
+            end
+        end
+    end
+
+    if not script_segment_base then
+        io.stderr:write("Error: could not determine segment base for script\n")
+        return 1
+    end
+
+    -- Build output records: remove any data records overlapping [old_start, new_end),
+    -- insert new script records at the position of the first removed record.
+    local out_records = {}
+    local script_inserted = false
+    local chunk_size = 16
+
+    for _, rec in ipairs(records) do
+        if rec.rec_type == 0 and rec.phys_addr then
+            local rec_start = rec.phys_addr
+            local rec_end = rec.phys_addr + rec.byte_count - 1
+            -- Check overlap with new script range [old_start, new_end)
+            if rec_start < new_end and rec_end >= old_start then
+                if not script_inserted then
+                    -- Insert new script records
+                    local offset = 0
+                    while offset < script_len do
+                        local remaining = script_len - offset
+                        local this_chunk = math.min(chunk_size, remaining)
+                        local phys = old_start + offset
+                        local data = {}
+                        for j = 1, this_chunk do
+                            data[j] = string.byte(script_data, offset + j)
+                        end
+                        table.insert(out_records, {
+                            rec_type = 0,
+                            addr = phys - script_segment_base,
+                            phys_addr = phys,
+                            byte_count = this_chunk,
+                            data = data,
+                            segment_base = script_segment_base,
+                        })
+                        offset = offset + this_chunk
+                    end
+                    script_inserted = true
+                end
+                -- Skip this record (overlaps with new script)
+            else
+                table.insert(out_records, rec)
+            end
+        else
+            table.insert(out_records, rec)
+        end
+    end
+
+    -- Patch metadata records in place
+    for _, rec in ipairs(out_records) do
+        if rec.rec_type == 0 and rec.phys_addr then
+            local rec_start = rec.phys_addr
+            local rec_end = rec.phys_addr + rec.byte_count - 1
+            if rec_start <= LUA_META_ADDR and rec_end >= LUA_META_ADDR then
+                for i = 0, rec.byte_count - 1 do
+                    local phys = rec.phys_addr + i
+                    if phys >= LUA_META_ADDR and phys < LUA_META_ADDR + LUA_META_LEN then
+                        local idx = phys - LUA_META_ADDR
+                        local val
+                        if idx < 4 then
+                            val = bit_rshift(magic, idx * 8)
+                        elseif idx < 8 then
+                            val = bit_rshift(old_start, (idx - 4) * 8)
+                        elseif idx < 12 then
+                            val = bit_rshift(new_end, (idx - 8) * 8)
+                        else
+                            val = bit_rshift(script_len, (idx - 12) * 8)
+                        end
+                        rec.data[i + 1] = bit_and(val, 0xFF)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Handle output path
+    if not output_path then
+        io.write(string.format("Overwrite %s? [y/N]\n", filepath))
+        io.write("(or provide a fourth argument to write to a different file, or use --overwrite)\n")
+        io.write("> ")
+        io.flush()
+        local answer = io.read("*line")
+        if answer ~= "y" and answer ~= "Y" and answer ~= "yes" and answer ~= "YES" then
+            io.stderr:write("Aborted.\n")
+            return 1
+        end
+        output_path = filepath
+    end
+
+    -- Write output hex file
+    local out = io.open(output_path, "w")
+    if not out then
+        io.stderr:write("Error: cannot open output file: " .. output_path .. "\n")
+        return 1
+    end
+
+    local current_segment = 0
+    for _, rec in ipairs(out_records) do
+        if rec.rec_type == 2 then
+            local seg_val = bit_or(bit_lshift(rec.data[1], 8), rec.data[2])
+            current_segment = bit_lshift(seg_val, 4)
+        elseif rec.rec_type == 0 and rec.phys_addr then
+            if rec.segment_base ~= current_segment then
+                local seg_val = bit_rshift(rec.segment_base, 4)
+                local seg_data = {bit_rshift(seg_val, 8), bit_and(seg_val, 0xFF)}
+                out:write(make_hex_line(0, 2, seg_data) .. "\n")
+                current_segment = rec.segment_base
+            end
+        end
+
+        if rec.rec_type == 0 then
+            out:write(make_hex_line(rec.addr, 0, rec.data) .. "\r\n")
+        elseif rec.rec_type == 1 then
+            out:write(":00000001FF\r\n")
+        elseif rec.rec_type == 2 then
+            out:write(make_hex_line(0, 2, rec.data) .. "\r\n")
+        elseif rec.rec_type == 3 then
+            out:write(make_hex_line(0, 3, rec.data) .. "\r\n")
+        elseif rec.rec_type == 4 then
+            out:write(make_hex_line(0, 4, rec.data) .. "\r\n")
+        elseif rec.rec_type == 5 then
+            out:write(make_hex_line(0, 5, rec.data) .. "\r\n")
+        end
+    end
+
+    out:close()
+
+    print(string.format("Embedded %d bytes at 0x%08X", script_len, old_start))
+    return 0
+end
+
 local command = arg[1]
 if not command then
     io.stderr:write(USAGE)
@@ -567,6 +811,8 @@ if command == "structure" then
     os.exit(cmd_structure(cmd_args))
 elseif command == "extract" then
     os.exit(cmd_extract(cmd_args))
+elseif command == "embed" then
+    os.exit(cmd_embed(cmd_args))
 else
     io.stderr:write("Unknown command: " .. command .. "\n")
     io.stderr:write(USAGE)
