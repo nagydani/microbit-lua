@@ -3,15 +3,16 @@
 -- Lua 5.1.5 compatible
 
 local USAGE = [[
-Usage: lua hextract structure <input.hex> [--verbose]
-
-Inspect the structure of an Intel HEX firmware file.
+Usage: lua hextract <command> [args]
 
 Commands:
   structure <file> [--verbose]   Show hex file structure, regions, metadata
+  extract <file> [<output>]      Extract the Lua payload from the firmware
 
 Options:
   --verbose   Show full record-by-record log
+
+If <output> is "-" or omitted, the payload is written to stdout.
 ]]
 
 -- Constants from linker script (nrf52833-softdevice.ld)
@@ -475,9 +476,81 @@ local function cmd_structure(args)
     return 0
 end
 
-----------------------------------------------------------------------
--- Main
-----------------------------------------------------------------------
+local function cmd_extract(args)
+    local filepath = args[1]
+    if not filepath then
+        io.stderr:write("Error: no input file specified\n")
+        io.stderr:write(USAGE)
+        return 1
+    end
+
+    local output = args[2]
+    if output == "-" then
+        output = nil
+    end
+
+    local parsed, err = parse_hex_file(filepath)
+    if not parsed then
+        io.stderr:write("Error: " .. err .. "\n")
+        return 1
+    end
+
+    local records = parsed.records
+
+    local meta_bytes = read_bytes_from_records(records, LUA_META_ADDR, LUA_META_LEN)
+    local all_zero = true
+    for i = 1, LUA_META_LEN do
+        if meta_bytes[i] ~= 0 then all_zero = false; break end
+    end
+
+    if all_zero then
+        io.stderr:write("Error: no Lua metadata found at 0x" .. string.format("%08X", LUA_META_ADDR) .. "\n")
+        return 1
+    end
+
+    local magic = u32_le(meta_bytes, 1)
+    local script_start = u32_le(meta_bytes, 5)
+    local script_end   = u32_le(meta_bytes, 9)
+    local script_size  = u32_le(meta_bytes, 13)
+
+    if magic ~= LUA_MAGIC then
+        io.stderr:write(string.format("Error: bad magic 0x%08X (expected 0x%08X)\n", magic, LUA_MAGIC))
+        return 1
+    end
+
+    if script_start >= script_end then
+        io.stderr:write(string.format("Error: script start (0x%08X) >= end (0x%08X)\n", script_start, script_end))
+        return 1
+    end
+
+    local size = script_end - script_start
+    if script_size ~= size then
+        io.stderr:write(string.format("Warning: metadata size (%d) != end - start (%d), using end - start\n", script_size, size))
+    end
+
+    local script_bytes = read_bytes_from_records(records, script_start, size)
+
+    local out
+    if output then
+        out = io.open(output, "wb")
+        if not out then
+            io.stderr:write("Error: cannot open output file: " .. output .. "\n")
+            return 1
+        end
+    else
+        out = io.stdout
+    end
+
+    for i = 1, size do
+        out:write(string.char(script_bytes[i]))
+    end
+
+    if output then
+        out:close()
+    end
+
+    return 0
+end
 
 local command = arg[1]
 if not command then
@@ -492,6 +565,8 @@ end
 
 if command == "structure" then
     os.exit(cmd_structure(cmd_args))
+elseif command == "extract" then
+    os.exit(cmd_extract(cmd_args))
 else
     io.stderr:write("Unknown command: " .. command .. "\n")
     io.stderr:write(USAGE)
