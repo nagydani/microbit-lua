@@ -38,6 +38,10 @@ RUN apt-get update -qq && \
       diffutils \
       patch \
       less \
+      lua5.1 \
+      lua5.2 \
+      lua5.3 \
+      lua5.4 \
       python3 \
       python3-pip \
       gcc-arm-none-eabi \
@@ -48,6 +52,8 @@ RUN apt-get update -qq && \
     apt-get autoremove -y && \
     apt-get clean -y && \
     rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --set lua-interpreter /usr/bin/lua5.1
 
 # Project sources volume should be mounted at /app
 # COPY . /opt/microbit-samples
