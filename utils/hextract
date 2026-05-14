@@ -1,0 +1,499 @@
+#!/usr/bin/env lua
+-- hextract - Intel HEX file inspector for micro:bit firmware
+-- Lua 5.1.5 compatible
+
+local USAGE = [[
+Usage: lua hextract structure <input.hex> [--verbose]
+
+Inspect the structure of an Intel HEX firmware file.
+
+Commands:
+  structure <file> [--verbose]   Show hex file structure, regions, metadata
+
+Options:
+  --verbose   Show full record-by-record log
+]]
+
+-- Constants from linker script (nrf52833-softdevice.ld)
+local LUA_META_ADDR = 0x76FF0
+local LUA_META_LEN  = 0x10
+local LUA_MAGIC     = 0x4C554131
+
+local RECORD_NAMES = {
+    [0] = "Data",
+    [1] = "EOF",
+    [2] = "Extended Segment Address",
+    [3] = "Start Segment Address",
+    [4] = "Extended Linear Address",
+    [5] = "Start Linear Address",
+}
+
+----------------------------------------------------------------------
+-- Bitwise helpers for Lua 5.1
+----------------------------------------------------------------------
+
+local function bit_and(a, b)
+    local r = 0
+    local m = 1
+    for i = 0, 31 do
+        if (a % 2 == 1) and (b % 2 == 1) then
+            r = r + m
+        end
+        a = math.floor(a / 2)
+        b = math.floor(b / 2)
+        m = m * 2
+    end
+    return r
+end
+
+local function bit_or(a, b)
+    local r = 0
+    local m = 1
+    for i = 0, 31 do
+        if (a % 2 == 1) or (b % 2 == 1) then
+            r = r + m
+        end
+        a = math.floor(a / 2)
+        b = math.floor(b / 2)
+        m = m * 2
+    end
+    return r
+end
+
+local function bit_lshift(a, n)
+    return a * (2 ^ n)
+end
+
+local function bit_rshift(a, n)
+    return math.floor(a / (2 ^ n))
+end
+
+----------------------------------------------------------------------
+-- Parsing
+----------------------------------------------------------------------
+
+local function parse_hex_line(line)
+    line = line:gsub("^%s+", ""):gsub("%s+$", "")
+    if line == "" or line:sub(1,1) ~= ":" then
+        return nil
+    end
+
+    local hex = line:sub(2)
+    local len = #hex
+
+    if len < 10 then
+        return nil, "line too short"
+    end
+
+    if len % 2 ~= 0 then
+        return nil, "odd number of hex digits"
+    end
+
+    local byte_count = tonumber(hex:sub(1,2), 16)
+    local addr       = tonumber(hex:sub(3,6), 16)
+    local rec_type   = tonumber(hex:sub(7,8), 16)
+
+    local expected_len = 2 + 4 + 2 + byte_count * 2 + 2
+    if len ~= expected_len then
+        return nil, string.format("byte count mismatch: header says %d, line has %d data bytes",
+                                  byte_count, (len - 10) / 2)
+    end
+
+    local data = {}
+    for i = 1, byte_count do
+        data[i] = tonumber(hex:sub(9 + (i-1)*2, 9 + (i-1)*2 + 1), 16)
+    end
+
+    local stored_cksum = tonumber(hex:sub(len-1, len), 16)
+    local sum = byte_count + bit_and(addr, 0xFF) + bit_rshift(addr, 8) + rec_type
+    for i = 1, byte_count do
+        sum = sum + data[i]
+    end
+    local calc_cksum = bit_and((-sum) % 256, 0xFF)
+    local cksum_ok = (calc_cksum == stored_cksum)
+
+    return {
+        byte_count = byte_count,
+        addr       = addr,
+        rec_type   = rec_type,
+        data       = data,
+        cksum_ok   = cksum_ok,
+        stored_cksum = stored_cksum,
+        calc_cksum   = calc_cksum,
+    }
+end
+
+local function parse_hex_file(filepath)
+    local file = io.open(filepath, "r")
+    if not file then
+        return nil, "cannot open file: " .. filepath
+    end
+
+    local records = {}
+    local line_num = 0
+    local segment_base = 0
+    local linear_base  = 0
+    local use_linear = false
+    local errors = {}
+
+    for raw_line in file:lines() do
+        line_num = line_num + 1
+        local line = raw_line:gsub("^%s+", ""):gsub("%s+$", "")
+        if line == "" or line:sub(1,1) ~= ":" then
+            -- skip blank / non-hex lines
+        else
+            local rec, err = parse_hex_line(line)
+            if not rec then
+                table.insert(errors, {line = line_num, msg = err})
+            else
+                if not rec.cksum_ok then
+                    table.insert(errors, {line = line_num, msg = string.format(
+                        "checksum mismatch: stored 0x%02X, calculated 0x%02X",
+                        rec.stored_cksum, rec.calc_cksum)})
+                end
+
+                if rec.rec_type == 2 then
+                    segment_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 4)
+                    use_linear = false
+                elseif rec.rec_type == 4 then
+                    linear_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 16)
+                    use_linear = true
+                end
+
+                local phys_addr = nil
+                if rec.rec_type == 0 then
+                    if use_linear then
+                        phys_addr = linear_base + rec.addr
+                    else
+                        phys_addr = segment_base + rec.addr
+                    end
+                end
+
+                table.insert(records, {
+                    line_num  = line_num,
+                    rec_type  = rec.rec_type,
+                    addr      = rec.addr,
+                    phys_addr = phys_addr,
+                    byte_count = rec.byte_count,
+                    data      = rec.data,
+                    cksum_ok  = rec.cksum_ok,
+                    raw       = line,
+                    segment_base = segment_base,
+                    linear_base  = linear_base,
+                })
+            end
+        end
+    end
+
+    file:close()
+    return {records = records, errors = errors}
+end
+
+----------------------------------------------------------------------
+-- Analysis helpers
+----------------------------------------------------------------------
+
+local function build_data_regions(records)
+    -- Collect address intervals from data records
+    local intervals = {}
+    local min_addr = nil
+    local max_addr = nil
+    local total_data = 0
+
+    for _, rec in ipairs(records) do
+        if rec.rec_type == 0 and rec.phys_addr then
+            local s = rec.phys_addr
+            local e = rec.phys_addr + rec.byte_count - 1
+            table.insert(intervals, {s, e})
+            total_data = total_data + rec.byte_count
+            if not min_addr or s < min_addr then min_addr = s end
+            if not max_addr or e > max_addr then max_addr = e end
+        end
+    end
+
+    if not min_addr then
+        return {}, 0, 0, 0, 0, 0
+    end
+
+    -- Sort intervals by start address
+    table.sort(intervals, function(a, b) return a[1] < b[1] end)
+
+    -- Merge overlapping/contiguous intervals
+    local regions = {}
+    local cur_s = intervals[1][1]
+    local cur_e = intervals[1][2]
+
+    for i = 2, #intervals do
+        local s = intervals[i][1]
+        local e = intervals[i][2]
+        if s <= cur_e + 1 then
+            -- Overlapping or contiguous, extend
+            if e > cur_e then cur_e = e end
+        else
+            -- Gap, flush current region
+            table.insert(regions, {start = cur_s, ["end"] = cur_e})
+            cur_s = s
+            cur_e = e
+        end
+    end
+    table.insert(regions, {start = cur_s, ["end"] = cur_e})
+
+    local gap_count = math.max(0, #regions - 1)
+    local gap_size = 0
+    for i = 1, gap_count do
+        gap_size = gap_size + (regions[i+1].start - regions[i]["end"] - 1)
+    end
+
+    return regions, min_addr, max_addr, gap_count, gap_size, total_data
+end
+
+local function read_bytes_from_records(records, phys_addr, length)
+    local byte_map = {}
+    for _, rec in ipairs(records) do
+        if rec.rec_type == 0 and rec.phys_addr then
+            for i = 0, rec.byte_count - 1 do
+                byte_map[rec.phys_addr + i] = rec.data[i + 1]
+            end
+        end
+    end
+
+    local result = {}
+    for i = 0, length - 1 do
+        result[i + 1] = byte_map[phys_addr + i] or 0
+    end
+    return result
+end
+
+local function u32_le(bytes, offset)
+    offset = offset or 1
+    return bytes[offset]
+         + bit_lshift(bytes[offset+1], 8)
+         + bit_lshift(bytes[offset+2], 16)
+         + bit_lshift(bytes[offset+3], 24)
+end
+
+----------------------------------------------------------------------
+-- Output
+----------------------------------------------------------------------
+
+local function fmt_size(n)
+    if n >= 1024*1024 then
+        return string.format("%.1f MB", n / (1024*1024))
+    elseif n >= 1024 then
+        return string.format("%.1f KB", n / 1024)
+    else
+        return string.format("%d B", n)
+    end
+end
+
+local function cmd_structure(args)
+    local filepath = args[1]
+    if not filepath then
+        io.stderr:write("Error: no input file specified\n")
+        io.stderr:write(USAGE)
+        return 1
+    end
+
+    local verbose = false
+    for i = 2, #args do
+        if args[i] == "--verbose" then
+            verbose = true
+        end
+    end
+
+    local parsed, err = parse_hex_file(filepath)
+    if not parsed then
+        io.stderr:write("Error: " .. err .. "\n")
+        return 1
+    end
+
+    local records = parsed.records
+    local errors  = parsed.errors
+
+    local type_counts = {}
+    local total_data_bytes = 0
+    for _, rec in ipairs(records) do
+        type_counts[rec.rec_type] = (type_counts[rec.rec_type] or 0) + 1
+        if rec.rec_type == 0 then
+            total_data_bytes = total_data_bytes + rec.byte_count
+        end
+    end
+
+    if verbose then
+        print("=== RECORD LOG ===")
+        for _, rec in ipairs(records) do
+            local name = RECORD_NAMES[rec.rec_type] or string.format("Unknown(0x%02X)", rec.rec_type)
+            local cksum_status = rec.cksum_ok and "OK" or "FAIL"
+
+            if rec.rec_type == 0 then
+                print(string.format("Line %5d: Type 00 (Data)     Addr 0x%04X  Phys 0x%08X  Size %2d  CKSUM %s",
+                      rec.line_num, rec.addr, rec.phys_addr, rec.byte_count, cksum_status))
+            elseif rec.rec_type == 1 then
+                print(string.format("Line %5d: Type 01 (EOF)                                        CKSUM %s",
+                      rec.line_num, cksum_status))
+            elseif rec.rec_type == 2 then
+                local seg = bit_or(bit_lshift(rec.data[1], 8), rec.data[2])
+                print(string.format("Line %5d: Type 02 (Segment)  Segment 0x%04X  Base 0x%08X  CKSUM %s",
+                      rec.line_num, seg, bit_lshift(seg, 4), cksum_status))
+            elseif rec.rec_type == 3 then
+                local cs = bit_or(bit_lshift(rec.data[1], 8), rec.data[2])
+                local ip = bit_or(bit_lshift(rec.data[3], 8), rec.data[4])
+                print(string.format("Line %5d: Type 03 (StartSeg) CS 0x%04X  IP 0x%04X  Entry 0x%08X  CKSUM %s",
+                      rec.line_num, cs, ip, bit_lshift(cs, 4) + ip, cksum_status))
+            elseif rec.rec_type == 4 then
+                local upper = bit_or(bit_lshift(rec.data[1], 8), rec.data[2])
+                print(string.format("Line %5d: Type 04 (Linear)   Upper 0x%04X  Base 0x%08X  CKSUM %s",
+                      rec.line_num, upper, bit_lshift(upper, 16), cksum_status))
+            else
+                print(string.format("Line %5d: Type 0x%02X (%s)                          CKSUM %s",
+                      rec.line_num, rec.rec_type, name, cksum_status))
+            end
+        end
+        print()
+    end
+
+    local regions, min_addr, max_addr, gap_count, gap_size, actual_data =
+        build_data_regions(records)
+
+    print("=== DATA REGIONS ===")
+    if #regions == 0 then
+        print("  No data records found")
+    else
+        for i, r in ipairs(regions) do
+            local size = r["end"] - r.start + 1
+            print(string.format("  Region %d: 0x%08X - 0x%08X  (%s)",
+                  i, r.start, r["end"], fmt_size(size)))
+        end
+    end
+    print()
+
+    print(string.format("=== LUA METADATA (0x%08X) ===", LUA_META_ADDR))
+    local meta_bytes = read_bytes_from_records(records, LUA_META_ADDR, LUA_META_LEN)
+    local all_zero = true
+    for i = 1, LUA_META_LEN do
+        if meta_bytes[i] ~= 0 then all_zero = false; break end
+    end
+
+    if all_zero then
+        print("  No metadata found at this address (all zeros)")
+        print("  The firmware may not have a Lua payload embedded")
+    else
+        local magic = u32_le(meta_bytes, 1)
+        local script_start = u32_le(meta_bytes, 5)
+        local script_end   = u32_le(meta_bytes, 9)
+        local script_size  = u32_le(meta_bytes, 13)
+
+        local magic_str
+        if magic == LUA_MAGIC then
+            magic_str = string.format("0x%08X (\"LUA1\")", magic)
+        else
+            magic_str = string.format("0x%08X (expected 0x%08X \"LUA1\")", magic, LUA_MAGIC)
+        end
+        print("  Magic: " .. magic_str)
+        print(string.format("  Start: 0x%08X (%d)", script_start, script_start))
+        print(string.format("  End:   0x%08X (%d)", script_end, script_end))
+        print(string.format("  Size:  0x%08X (%d)", script_size, script_size))
+
+        local calc_size = script_end - script_start
+        print()
+        print("  Sanity checks:")
+        if magic == LUA_MAGIC then
+            print("    Magic: OK")
+        else
+            print("    Magic: FAIL")
+        end
+        if script_start < script_end then
+            print(string.format("    Start < End: OK (difference = %d bytes)", calc_size))
+        else
+            print("    Start < End: FAIL")
+        end
+        if script_size == calc_size then
+            print(string.format("    Size == End - Start: OK (%d bytes)", script_size))
+        else
+            print(string.format("    WARNING: Size (%d) != End - Start (%d)", script_size, calc_size))
+        end
+
+        if magic == LUA_MAGIC and script_start < script_end and calc_size > 0 and calc_size < 100000 then
+            local script_bytes = read_bytes_from_records(records, script_start, calc_size)
+            local script_str = ""
+            for i = 1, calc_size do
+                local b = script_bytes[i]
+                if b >= 32 and b < 127 then
+                    script_str = script_str .. string.char(b)
+                elseif b == 10 or b == 13 then
+                    script_str = script_str .. string.char(b)
+                else
+                    script_str = script_str .. "?"
+                end
+            end
+            print()
+            print("  Script preview:")
+            for l in script_str:gmatch("[^\n]*\n?") do
+                if l ~= "" then
+                    print("    " .. l)
+                end
+            end
+        end
+    end
+    print()
+
+    if #errors > 0 then
+        print("=== CHECKSUM / FORMAT ERRORS ===")
+        for _, e in ipairs(errors) do
+            print(string.format("  Line %d: %s", e.line, e.msg))
+        end
+        print()
+    end
+
+    print("=== SUMMARY ===")
+    print(string.format("  Total records: %d", #records))
+
+    local type_order = {0, 2, 3, 4, 5, 1}
+    for _, t in ipairs(type_order) do
+        local count = type_counts[t] or 0
+        if count > 0 then
+            local name = RECORD_NAMES[t] or string.format("0x%02X", t)
+            print(string.format("    %s: %d", name, count))
+        end
+    end
+
+    print(string.format("  Total data bytes: %d (%s)", total_data_bytes, fmt_size(total_data_bytes)))
+    if min_addr then
+        print(string.format("  Address range: 0x%08X - 0x%08X", min_addr, max_addr))
+        print(string.format("  Gaps: %d (total %s)", gap_count, fmt_size(gap_size)))
+    end
+
+    local cksum_ok_count = 0
+    for _, rec in ipairs(records) do
+        if rec.cksum_ok then cksum_ok_count = cksum_ok_count + 1 end
+    end
+    print(string.format("  Checksums: %d/%d valid", cksum_ok_count, #records))
+    if #errors > 0 then
+        print(string.format("  Errors: %d", #errors))
+    end
+
+    return 0
+end
+
+----------------------------------------------------------------------
+-- Main
+----------------------------------------------------------------------
+
+local command = arg[1]
+if not command then
+    io.stderr:write(USAGE)
+    os.exit(1)
+end
+
+local cmd_args = {}
+for i = 2, #arg do
+    table.insert(cmd_args, arg[i])
+end
+
+if command == "structure" then
+    os.exit(cmd_structure(cmd_args))
+else
+    io.stderr:write("Unknown command: " .. command .. "\n")
+    io.stderr:write(USAGE)
+    os.exit(1)
+end
