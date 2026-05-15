@@ -241,7 +241,9 @@ fi
 # Summary
 section "Results"
 echo -e "  ${GREEN}Passed: $PASS${NC}"
-echo -e "  ${RED}Failed: $FAIL${NC}"
+if [ $FAIL -gt 0 ]; then
+  echo -e "  ${RED}Failed: $FAIL${NC}"
+fi
 echo "  Total:  $TOTAL"
 
 if [ $FAIL -gt 0 ]; then
