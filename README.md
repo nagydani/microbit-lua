@@ -1,3 +1,5 @@
+[![CI](https://github.com/nagydani/microbit-lua/actions/workflows/ci.yaml/badge.svg)](https://github.com/nagydani/microbit-lua/actions/workflows/ci.yaml)
+
 # Microbit Lua
 
 Lua compiled for the [micro:bit](https://microbit.org/) SBC.
@@ -12,8 +14,10 @@ and compile it as the main payload of the firmware. It builds upon
 [CODAL](https://tech.microbit.org/software/runtime/) and exposes its
 API to the Lua runtime.
 
-When the board is powered on Lua gets initialized and the
-`source/lua-script.lua` file is run.
+When the board is powered on then the Lua VM is initialized and the
+firmware payload (the `source/lua-script.lua` file) is evaluated. This
+payload can be replaced by the `hextract` script without recompiling
+the firmware image.
 
 
 ## Building
@@ -32,7 +36,8 @@ included `Dockerfile`:
    `podman run --tty --rm --interactive --volume "$(pwd)":/workspace
    --workdir /workspace microbit`
 
-The current directory will be shared with the container.
+The current directory will be shared with the container under
+`/workspace`.
 
 
 ## Flashing
@@ -41,6 +46,24 @@ The Microbit board exposes a pendrive-like interface. Mount it like
 any other pendrive and just copy the `MICROBIT.hex` file to it. While
 flashing the orange led next to the USB connector will be blinking
 fast. Then the firmware is automatically started.
+
+To avoid manually mounting the drive, you can use this on an typical
+Linux:
+
+```shell
+udisksctl mount -b $(lsblk -o NAME,LABEL | awk '$2=="MICROBIT"{print "/dev/"$1}') && \
+  cp MICROBIT.hex /run/media/${USER}/MICROBIT/
+```
+
+
+## Updating the Lua payload
+
+The `utils/hextract` command line tool can be used to extract and
+embed the Lua payload in a .hex file. It's a Lua script written by
+LLMs, compatible with Lua 5.1.
+
+Some technical details are documented in
+[utils/hextract.md](utils/hextract.md).
 
 
 # Where

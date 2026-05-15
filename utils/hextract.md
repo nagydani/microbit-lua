@@ -74,10 +74,8 @@ Located at **0x76FF0**, 16 bytes, 4 little-endian 32-bit words:
 | 0x08 | End | Physical address of the end of the Lua script |
 | 0x0C | Size | Size of the Lua script in bytes |
 
-**Invariant**: `Size == End - Start`. The `embed` command maintains this
-invariant. Original firmware builds may have a bug where the Size field
-incorrectly stores the End address value; `extract` reports this as a warning
-and uses `End - Start` for the actual read length.
+**Invariant**: `Size == End - Start`. The `embed` command maintains
+this invariant and `extract` reports a warning when it's broken.
 
 ## Architecture
 
