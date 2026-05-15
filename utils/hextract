@@ -127,6 +127,7 @@ local function parse_hex_file(filepath)
     local errors = {}
     local total_records = 0
     local cksum_ok = 0
+    local start_addr_record = nil
 
     for raw_line in file:lines() do
         local line = raw_line:gsub("^%s+", ""):gsub("%s+$", "")
@@ -141,6 +142,8 @@ local function parse_hex_file(filepath)
                 if rec.rec_type == 2 then
                     segment_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 4)
                     use_linear = false
+                elseif rec.rec_type == 3 then
+                    start_addr_record = rec.data
                 elseif rec.rec_type == 4 then
                     linear_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 16)
                     use_linear = true
@@ -152,6 +155,7 @@ local function parse_hex_file(filepath)
                         for i = 1, rec.byte_count do
                             cur_block.bytes[cur_block.length + i] = rec.data[i]
                         end
+                        table.insert(cur_block.record_lengths, rec.byte_count)
                         cur_block.length = cur_block.length + rec.byte_count
                     else
                         -- Flush and start new block
@@ -161,6 +165,7 @@ local function parse_hex_file(filepath)
                             bytes        = {unpack(rec.data)},
                             length       = rec.byte_count,
                             use_linear   = use_linear,
+                            record_lengths = {rec.byte_count},
                         }
                     end
                 end
@@ -176,6 +181,7 @@ local function parse_hex_file(filepath)
         errors = errors,
         total_records = total_records,
         cksum_ok = cksum_ok,
+        start_addr_record = start_addr_record,
     }
 end
 
@@ -267,12 +273,13 @@ local function make_hex_line(addr, rec_type, data)
     return line
 end
 
-local function serialize_blocks(blocks, out)
+local function serialize_blocks(blocks, out, start_addr_record)
     local current_base = nil
     local current_type = nil
 
     for _, block in ipairs(blocks) do
         local offset = 0
+        local rec_idx = 0
 
         while offset < block.length do
             local phys = block.start_addr + offset
@@ -281,12 +288,21 @@ local function serialize_blocks(blocks, out)
                 local upper = bit_rshift(phys, 16)
                 local lin_base = bit_lshift(upper, 16)
                 if lin_base ~= current_base or current_type ~= "linear" then
+                    if current_type == "segment" and current_base ~= 0 then
+                        out:write(make_hex_line(0, 2, {0, 0}) .. "\n")
+                    end
                     out:write(make_hex_line(0, 4, {bit_rshift(upper, 8), bit_and(upper, 0xFF)}) .. "\n")
                     current_base = lin_base
                     current_type = "linear"
                 end
                 local addr = phys - current_base
-                local chunk = math.min(16, block.length - offset)
+                local chunk
+                if block.record_lengths and rec_idx < #block.record_lengths then
+                    rec_idx = rec_idx + 1
+                    chunk = block.record_lengths[rec_idx]
+                else
+                    chunk = math.min(16, block.length - offset)
+                end
                 local data = {}
                 for i = 1, chunk do
                     data[i] = block.bytes[offset + i]
@@ -294,20 +310,23 @@ local function serialize_blocks(blocks, out)
                 out:write(make_hex_line(addr, 0, data) .. "\n")
                 offset = offset + chunk
             else
-                local seg = bit_rshift(block.start_addr, 4)
+                local seg = bit_rshift(bit_and(phys, 0xF0000), 4)
                 local seg_base = bit_lshift(seg, 4)
                 local addr_in_seg = phys - seg_base
-                if addr_in_seg >= 0x10000 then
-                    seg = bit_rshift(phys, 4)
-                    seg_base = bit_lshift(seg, 4)
-                    addr_in_seg = phys - seg_base
-                end
                 if seg_base ~= current_base or current_type ~= "segment" then
-                    out:write(make_hex_line(0, 2, {bit_rshift(seg, 8), bit_and(seg, 0xFF)}) .. "\n")
+                    if seg ~= 0 or current_base ~= nil then
+                        out:write(make_hex_line(0, 2, {bit_rshift(seg, 8), bit_and(seg, 0xFF)}) .. "\n")
+                    end
                     current_base = seg_base
                     current_type = "segment"
                 end
-                local chunk = math.min(16, block.length - offset)
+                local chunk
+                if block.record_lengths and rec_idx < #block.record_lengths then
+                    rec_idx = rec_idx + 1
+                    chunk = block.record_lengths[rec_idx]
+                else
+                    chunk = math.min(16, block.length - offset)
+                end
                 local data = {}
                 for i = 1, chunk do
                     data[i] = block.bytes[offset + i]
@@ -318,6 +337,9 @@ local function serialize_blocks(blocks, out)
         end
     end
 
+    if start_addr_record then
+        out:write(make_hex_line(0, 3, start_addr_record) .. "\n")
+    end
     out:write(":00000001FF\n")
 end
 
@@ -686,7 +708,7 @@ local function cmd_embed(args)
         return 1
     end
 
-    serialize_blocks(blocks, out)
+    serialize_blocks(blocks, out, parsed.start_addr_record)
     out:close()
 
     print(string.format("Embedded %d bytes at 0x%08X", script_len, old_start))
