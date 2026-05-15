@@ -24,15 +24,22 @@ local LUA_MAGIC     = 0x4C554131
 -- Bitwise helpers for Lua 5.1
 ----------------------------------------------------------------------
 
+-- Bitwise helpers for Lua 5.1.5 compatible
+-- Inlined at call sites for performance; kept for rare generic use.
+-- Common patterns:
+--   bit_and(x, 0xFF)       => x % 0x100
+--   bit_rshift(x, 8)       => math.floor(x / 0x100)
+--   bit_or(bit_lshift(a,8),b) => a * 0x100 + b
+--   bit_lshift(x, n)       => x * (2^n)
+--   bit_rshift(x, n)       => math.floor(x / (2^n))
+
 local function bit_and(a, b)
     local r = 0
     local m = 1
-    for i = 0, 31 do
-        if (a % 2 == 1) and (b % 2 == 1) then
+    while m <= a and m <= b do
+        if (a % (m * 2) >= m) and (b % (m * 2) >= m) then
             r = r + m
         end
-        a = math.floor(a / 2)
-        b = math.floor(b / 2)
         m = m * 2
     end
     return r
@@ -41,12 +48,11 @@ end
 local function bit_or(a, b)
     local r = 0
     local m = 1
-    for i = 0, 31 do
-        if (a % 2 == 1) or (b % 2 == 1) then
+    local limit = math.max(a, b)
+    while m <= limit do
+        if (a % (m * 2) >= m) or (b % (m * 2) >= m) then
             r = r + m
         end
-        a = math.floor(a / 2)
-        b = math.floor(b / 2)
         m = m * 2
     end
     return r
@@ -97,11 +103,11 @@ local function parse_hex_line(line)
     end
 
     local stored_cksum = tonumber(hex:sub(len-1, len), 16)
-    local sum = byte_count + bit_and(addr, 0xFF) + bit_rshift(addr, 8) + rec_type
+    local sum = byte_count + (addr % 0x100) + math.floor(addr / 0x100) + rec_type
     for i = 1, byte_count do
         sum = sum + data[i]
     end
-    local calc_cksum = bit_and((-sum) % 256, 0xFF)
+    local calc_cksum = (-sum) % 0x100
     local cksum_ok = (calc_cksum == stored_cksum)
 
     return {
@@ -140,12 +146,12 @@ local function parse_hex_file(filepath)
                 if rec.cksum_ok then cksum_ok = cksum_ok + 1 end
 
                 if rec.rec_type == 2 then
-                    segment_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 4)
+                    segment_base = (rec.data[1] * 0x100 + rec.data[2]) * 0x10
                     use_linear = false
                 elseif rec.rec_type == 3 then
                     start_addr_record = rec.data
                 elseif rec.rec_type == 4 then
-                    linear_base = bit_lshift(bit_or(bit_lshift(rec.data[1], 8), rec.data[2]), 16)
+                    linear_base = (rec.data[1] * 0x100 + rec.data[2]) * 0x10000
                     use_linear = true
                 elseif rec.rec_type == 0 then
                     local phys_addr = use_linear and (linear_base + rec.addr) or (segment_base + rec.addr)
@@ -255,11 +261,11 @@ end
 ----------------------------------------------------------------------
 
 local function calc_checksum(addr, rec_type, data)
-    local sum = #data + bit_and(addr, 0xFF) + bit_rshift(addr, 8) + rec_type
+    local sum = #data + (addr % 0x100) + math.floor(addr / 0x100) + rec_type
     for i = 1, #data do
         sum = sum + data[i]
     end
-    return bit_and((-sum) % 256, 0xFF)
+    return (-sum) % 0x100
 end
 
 local function make_hex_line(addr, rec_type, data)
@@ -291,7 +297,7 @@ local function serialize_blocks(blocks, out, start_addr_record)
                     if current_type == "segment" and current_base ~= 0 then
                         out:write(make_hex_line(0, 2, {0, 0}) .. "\n")
                     end
-                    out:write(make_hex_line(0, 4, {bit_rshift(upper, 8), bit_and(upper, 0xFF)}) .. "\n")
+                    out:write(make_hex_line(0, 4, {math.floor(upper / 0x100), upper % 0x100}) .. "\n")
                     current_base = lin_base
                     current_type = "linear"
                 end
@@ -310,12 +316,12 @@ local function serialize_blocks(blocks, out, start_addr_record)
                 out:write(make_hex_line(addr, 0, data) .. "\n")
                 offset = offset + chunk
             else
-                local seg = bit_rshift(bit_and(phys, 0xF0000), 4)
+                local seg = math.floor((phys % 0x100000) / 0x10)
                 local seg_base = bit_lshift(seg, 4)
                 local addr_in_seg = phys - seg_base
                 if seg_base ~= current_base or current_type ~= "segment" then
                     if seg ~= 0 or current_base ~= nil then
-                        out:write(make_hex_line(0, 2, {bit_rshift(seg, 8), bit_and(seg, 0xFF)}) .. "\n")
+                        out:write(make_hex_line(0, 2, {math.floor(seg / 0x100), seg % 0x100}) .. "\n")
                     end
                     current_base = seg_base
                     current_type = "segment"
@@ -360,9 +366,9 @@ end
 local function u32_le(bytes, offset)
     offset = offset or 1
     return bytes[offset]
-         + bit_lshift(bytes[offset+1], 8)
-         + bit_lshift(bytes[offset+2], 16)
-         + bit_lshift(bytes[offset+3], 24)
+         + bytes[offset+1] * 0x100
+         + bytes[offset+2] * 0x10000
+         + bytes[offset+3] * 0x1000000
 end
 
 ----------------------------------------------------------------------
@@ -674,14 +680,14 @@ local function cmd_embed(args)
     replace_block_range(blocks, old_start, old_len, script_bytes)
 
     local meta_data = {
-        bit_and(magic, 0xFF), bit_and(bit_rshift(magic, 8), 0xFF),
-        bit_and(bit_rshift(magic, 16), 0xFF), bit_and(bit_rshift(magic, 24), 0xFF),
-        bit_and(old_start, 0xFF), bit_and(bit_rshift(old_start, 8), 0xFF),
-        bit_and(bit_rshift(old_start, 16), 0xFF), bit_and(bit_rshift(old_start, 24), 0xFF),
-        bit_and(new_end, 0xFF), bit_and(bit_rshift(new_end, 8), 0xFF),
-        bit_and(bit_rshift(new_end, 16), 0xFF), bit_and(bit_rshift(new_end, 24), 0xFF),
-        bit_and(script_len, 0xFF), bit_and(bit_rshift(script_len, 8), 0xFF),
-        bit_and(bit_rshift(script_len, 16), 0xFF), bit_and(bit_rshift(script_len, 24), 0xFF),
+        magic % 0x100, math.floor(magic / 0x100) % 0x100,
+        math.floor(magic / 0x10000) % 0x100, math.floor(magic / 0x1000000),
+        old_start % 0x100, math.floor(old_start / 0x100) % 0x100,
+        math.floor(old_start / 0x10000) % 0x100, math.floor(old_start / 0x1000000),
+        new_end % 0x100, math.floor(new_end / 0x100) % 0x100,
+        math.floor(new_end / 0x10000) % 0x100, math.floor(new_end / 0x1000000),
+        script_len % 0x100, math.floor(script_len / 0x100) % 0x100,
+        math.floor(script_len / 0x10000) % 0x100, math.floor(script_len / 0x1000000),
     }
     write_bytes(blocks, LUA_META_ADDR, meta_data)
 
