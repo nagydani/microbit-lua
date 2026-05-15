@@ -316,8 +316,8 @@ local function serialize_blocks(blocks, out, start_addr_record)
                 out:write(make_hex_line(addr, 0, data) .. "\n")
                 offset = offset + chunk
             else
-                local seg = math.floor((phys % 0x100000) / 0x10)
-                local seg_base = bit_lshift(seg, 4)
+                local seg = math.floor(phys / 0x10000) % 16 * 0x1000
+                local seg_base = seg * 0x10
                 local addr_in_seg = phys - seg_base
                 if seg_base ~= current_base or current_type ~= "segment" then
                     if seg ~= 0 or current_base ~= nil then
