@@ -49,3 +49,6 @@ jobs:
       - run:  arm-none-eabi-gcc --version
 
       - run:  ./build.py
+
+      - name: Run hextract tests
+        run: bash tests/hextract/run-tests.sh
