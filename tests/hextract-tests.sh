@@ -241,11 +241,11 @@ fi
 # Test 18: Round-trip produces identical hex file
 cp "$FIRMWARE" "$TMPDIR/fw-rt-hex.hex"
 lua "$HEXTRACT" extract "$FIRMWARE" "$TMPDIR/rt-script.dat"
-lua "$HEXTRACT" embed "$TMPDIR/fw-rt-hex.hex" "$TMPDIR/rt-script.dat" --overwrite
-if diff -wq "$FIRMWARE" "$TMPDIR/fw-rt-hex.hex" > /dev/null 2>&1; then
+lua "$HEXTRACT" embed "$TMPDIR/fw-rt-hex.hex" "$TMPDIR/rt-script.dat" "$TMPDIR/fw-rt-out.hex" --overwrite
+if diff -wq "$FIRMWARE" "$TMPDIR/fw-rt-out.hex" > /dev/null 2>&1; then
   pass "round-trip produces identical hex file"
 else
-  DIFF_LINES=$(diff -w "$FIRMWARE" "$TMPDIR/fw-rt-hex.hex" | wc -l)
+  DIFF_LINES=$(diff -w "$FIRMWARE" "$TMPDIR/fw-rt-out.hex" | wc -l || true)
   fail "round-trip produces identical hex file" "$DIFF_LINES diff lines"
 fi
 
