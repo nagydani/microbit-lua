@@ -218,8 +218,10 @@ end
 local function replace_block_range(blocks, addr, old_len, new_data)
     local new_len = #new_data
     for _, block in ipairs(blocks) do
-        if addr >= block.start_addr and addr + old_len <= block.start_addr + block.length then
+        if addr >= block.start_addr and addr < block.start_addr + block.length then
             local off = addr - block.start_addr
+            local available = block.length - off
+            local actual_old_len = math.min(old_len, available)
             local new_bytes = {}
             local p = 1
             for i = 1, off do
@@ -230,12 +232,12 @@ local function replace_block_range(blocks, addr, old_len, new_data)
                 new_bytes[p] = new_data[i]
                 p = p + 1
             end
-            for i = off + old_len + 1, block.length do
+            for i = off + actual_old_len + 1, block.length do
                 new_bytes[p] = block.bytes[i]
                 p = p + 1
             end
             block.bytes = new_bytes
-            block.length = block.length - old_len + new_len
+            block.length = block.length - actual_old_len + new_len
             return true
         end
     end
@@ -292,20 +294,25 @@ local function serialize_blocks(blocks, out)
                 out:write(make_hex_line(addr, 0, data) .. "\n")
                 offset = offset + chunk
             else
-                local seg = bit_rshift(phys, 4)
+                local seg = bit_rshift(block.start_addr, 4)
                 local seg_base = bit_lshift(seg, 4)
+                local addr_in_seg = phys - seg_base
+                if addr_in_seg >= 0x10000 then
+                    seg = bit_rshift(phys, 4)
+                    seg_base = bit_lshift(seg, 4)
+                    addr_in_seg = phys - seg_base
+                end
                 if seg_base ~= current_base or current_type ~= "segment" then
                     out:write(make_hex_line(0, 2, {bit_rshift(seg, 8), bit_and(seg, 0xFF)}) .. "\n")
                     current_base = seg_base
                     current_type = "segment"
                 end
-                local addr = phys - current_base
                 local chunk = math.min(16, block.length - offset)
                 local data = {}
                 for i = 1, chunk do
                     data[i] = block.bytes[offset + i]
                 end
-                out:write(make_hex_line(addr, 0, data) .. "\n")
+                out:write(make_hex_line(addr_in_seg, 0, data) .. "\n")
                 offset = offset + chunk
             end
         end
@@ -566,7 +573,6 @@ end
 local function cmd_embed(args)
     local filepath = args[1]
     local script_path = args[2]
-    local output_path = args[3]
     local overwrite = false
 
     local positional = {}
@@ -577,9 +583,7 @@ local function cmd_embed(args)
             table.insert(positional, args[i])
         end
     end
-    if not output_path and #positional > 0 then
-        output_path = positional[1]
-    end
+    local output_path = positional[1] or nil
 
     if not filepath or not script_path then
         io.stderr:write("Error: missing arguments\n")
@@ -660,19 +664,23 @@ local function cmd_embed(args)
     write_bytes(blocks, LUA_META_ADDR, meta_data)
 
     if not output_path then
-        io.write(string.format("Overwrite %s? [y/N]\n", filepath))
-        io.write("(or provide a fourth argument to write to a different file, or use --overwrite)\n")
-        io.write("> ")
-        io.flush()
-        local answer = io.read("*line")
-        if answer ~= "y" and answer ~= "Y" and answer ~= "yes" and answer ~= "YES" then
-            io.stderr:write("Aborted.\n")
-            return 1
+        if overwrite then
+            output_path = filepath
+        else
+            io.write(string.format("Overwrite %s? [y/N]\n", filepath))
+            io.write("(or provide a fourth argument to write to a different file, or use --overwrite)\n")
+            io.write("> ")
+            io.flush()
+            local answer = io.read("*line")
+            if answer ~= "y" and answer ~= "Y" and answer ~= "yes" and answer ~= "YES" then
+                io.stderr:write("Aborted.\n")
+                return 1
+            end
+            output_path = filepath
         end
-        output_path = filepath
     end
 
-    local out = io.open(output_path, "w")
+    local out = io.open(output_path, "wb")
     if not out then
         io.stderr:write("Error: cannot open output file: " .. output_path .. "\n")
         return 1
