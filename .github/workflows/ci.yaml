@@ -51,4 +51,4 @@ jobs:
       - run:  ./build.py
 
       - name: Run hextract tests
-        run: bash tests/hextract/run-tests.sh
+        run: bash tests/hextract-tests.sh

@@ -74,67 +74,100 @@ Located at **0x76FF0**, 16 bytes, 4 little-endian 32-bit words:
 | 0x08 | End | Physical address of the end of the Lua script |
 | 0x0C | Size | Size of the Lua script in bytes |
 
-**Invariant**: `Size == End - Start`. The current firmware build has a bug where
-the Size field incorrectly stores the End address value. The script reports this
-as a warning.
+**Invariant**: `Size == End - Start`. The `embed` command maintains this
+invariant. Original firmware builds may have a bug where the Size field
+incorrectly stores the End address value; `extract` reports this as a warning
+and uses `End - Start` for the actual read length.
 
-## Script Architecture
+## Architecture
 
-```
-hextract
-├── Bitwise helpers          Lua 5.1 compatible bit_and, bit_or, bit_lshift, bit_rshift
-├── parse_hex_line()         Parse a single Intel HEX line, verify checksum
-├── parse_hex_file()         Parse entire file, track segment/linear base, collect errors
-├── build_data_regions()     Group contiguous addresses into regions, find gaps
-├── read_bytes_from_records() Read raw bytes from parsed records at a given address
-├── u32_le()                 Read little-endian uint32 from byte array
-├── cmd_structure()          Structure inspection command
-└── Main                     Argument parsing, command dispatch
-```
+### Parsing
+
+`parse_hex_file()` reads the entire HEX file and groups contiguous data records
+into **blocks**. Each block tracks:
+- `start_addr`: physical address of the first byte
+- `bytes`: array of byte values
+- `length`: number of bytes in the block
+- `use_linear`: whether the block uses type 04 (linear) or type 02 (segment) addressing
+
+Contiguous records with the same addressing mode are merged into a single block.
+A gap in addresses or a change in addressing mode starts a new block.
+
+### Block Operations
+
+- `read_bytes(blocks, addr, len)`: reads bytes from the block containing `addr`.
+  Returns zero-filled array if address is not found.
+- `write_bytes(blocks, addr, data)`: writes data into the block containing `addr`.
+  Fails if the write would exceed block boundaries.
+- `replace_block_range(blocks, addr, old_len, new_data)`: replaces a range within
+  a block with new data of a different length. The block is resized accordingly.
+  If `old_len` exceeds the available space in the block (e.g., metadata claims a
+  larger range than physically stored due to omitted trailing zeros), it is
+  clamped to the actual available bytes.
+
+### Serialization
+
+`serialize_blocks()` writes blocks back to Intel HEX format:
+- Type 02 (segment) or Type 04 (linear) records are emitted when the base changes
+- Data records use 16-byte chunks
+- Output uses LF line endings
+- Ends with `:00000001FF` (EOF record)
 
 ## Usage
 
 ```bash
-lua5.1 tools/hextract structure <input.hex> [--verbose]
+lua hextract <command> [args]
 ```
 
 ### Commands
 
-**`structure`** - Inspect the structure of an Intel HEX file.
+**`structure <file>`** - Inspect the structure of an Intel HEX file.
 
-Default output:
+Output:
 - Data regions with physical address boundaries and sizes
 - LUA metadata block analysis with sanity checks
+- Script preview (ASCII-printable characters)
 - Summary statistics (record counts, data bytes, address range, gaps)
 - Checksum validation summary
 
-With `--verbose`:
-- Full record-by-record log showing type, address, physical address, size,
-  and checksum status for every line
+**`extract <file> [<output>]`** - Extract the embedded Lua script from firmware.
+
+- If `<output>` is `-` or omitted, writes to stdout
+- Reads script from `Start` to `End` address per metadata
+- Warns if `Size` field differs from `End - Start`
+
+**`embed <firmware.hex> <script> [<output.hex>] [--overwrite|--in-place]`** - Embed a Lua script into firmware.
+
+- Replaces the existing script payload at the address specified by metadata
+- Updates metadata (`End`, `Size`) to reflect the new script
+- Resizes the containing block to match the new script length
+- If `<output.hex>` is omitted and `--overwrite` is not set, prompts for confirmation
+- If `<output.hex>` is omitted and `--overwrite` is set, writes back to the input file
+- Rejects scripts larger than `LUA_META_ADDR - Start` (space between script start and metadata)
 
 ### Example
 
 ```
-$ lua5.1 tools/hextract structure MICROBIT.hex
+$ lua hextract structure MICROBIT.hex
 
 === DATA REGIONS ===
   Region 1: 0x00000000 - 0x00000AFF  (2.8 KB)
   Region 2: 0x00001000 - 0x0001B3FF  (105.0 KB)
-  Region 3: 0x0001C000 - 0x00052EA5  (219.7 KB)
+  Region 3: 0x0001C000 - 0x00052EF5  (219.7 KB)
   Region 4: 0x00076FF0 - 0x0007D3EB  (25.0 KB)
   Region 5: 0x0007E000 - 0x0007F322  (4.8 KB)
   Region 6: 0x10001014 - 0x1000101B  (8 B)
 
 === LUA METADATA (0x00076FF0) ===
   Magic: 0x4C554131 ("LUA1")
-  Start: 0x00052BC8 (338888)
-  End:   0x00052C0A (338954)
-  Size:  0x00052C0A (338954)
+  Start: 0x00052EB4 (339636)
+  End:   0x00052EF6 (339702)
+  Size:  0x00000042 (66)
 
   Sanity checks:
     Magic: OK
     Start < End: OK (difference = 66 bytes)
-    WARNING: Size (338954) != End - Start (66)
+    Size == End - Start: OK (66 bytes)
 
   Script preview:
     scroll('Lua alive')
@@ -145,13 +178,30 @@ $ lua5.1 tools/hextract structure MICROBIT.hex
 
 === SUMMARY ===
   Total records: 22876
-    Data: 22866
-    Extended Segment Address: 7
-    Start Segment Address: 1
-    Extended Linear Address: 1
-    EOF: 1
   Total data bytes: 365773 (357.2 KB)
   Address range: 0x00000000 - 0x1000101B
   Gaps: 5 (total 255.7 MB)
   Checksums: 22876/22876 valid
 ```
+
+## Tests
+
+Run the test suite with:
+
+```bash
+bash tests/hextract-tests.sh
+```
+
+The suite covers:
+- Structure parsing and metadata detection
+- Extract to file and stdout
+- Embed idempotency (same data twice produces identical output)
+- Embed smaller/larger scripts with round-trip verification
+- Rejection of oversized scripts
+- Checksum validity after embed
+- Sequential embeds (shrink -> grow -> shrink)
+- Round-trip integrity (embed then extract matches source)
+- `--overwrite` flag behavior
+- Output file isolation (original preserved when writing to different file)
+- LF line endings in output
+- Metadata start address stability after embed
