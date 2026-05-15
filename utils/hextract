@@ -371,6 +371,25 @@ local function u32_le(bytes, offset)
          + bytes[offset+3] * 0x1000000
 end
 
+local function u32_to_le_bytes(val)
+    return {
+        val % 0x100,
+        math.floor(val / 0x100) % 0x100,
+        math.floor(val / 0x10000) % 0x100,
+        math.floor(val / 0x1000000),
+    }
+end
+
+local function pack_meta(magic, start, end_addr, size)
+    local b = {}
+    local p = 1
+    for _, v in ipairs(u32_to_le_bytes(magic)) do b[p] = v; p = p + 1 end
+    for _, v in ipairs(u32_to_le_bytes(start)) do b[p] = v; p = p + 1 end
+    for _, v in ipairs(u32_to_le_bytes(end_addr)) do b[p] = v; p = p + 1 end
+    for _, v in ipairs(u32_to_le_bytes(size)) do b[p] = v; p = p + 1 end
+    return b
+end
+
 ----------------------------------------------------------------------
 -- Commands
 ----------------------------------------------------------------------
@@ -679,16 +698,7 @@ local function cmd_embed(args)
 
     replace_block_range(blocks, old_start, old_len, script_bytes)
 
-    local meta_data = {
-        magic % 0x100, math.floor(magic / 0x100) % 0x100,
-        math.floor(magic / 0x10000) % 0x100, math.floor(magic / 0x1000000),
-        old_start % 0x100, math.floor(old_start / 0x100) % 0x100,
-        math.floor(old_start / 0x10000) % 0x100, math.floor(old_start / 0x1000000),
-        new_end % 0x100, math.floor(new_end / 0x100) % 0x100,
-        math.floor(new_end / 0x10000) % 0x100, math.floor(new_end / 0x1000000),
-        script_len % 0x100, math.floor(script_len / 0x100) % 0x100,
-        math.floor(script_len / 0x10000) % 0x100, math.floor(script_len / 0x1000000),
-    }
+    local meta_data = pack_meta(LUA_MAGIC, old_start, new_end, script_len)
     write_bytes(blocks, LUA_META_ADDR, meta_data)
 
     if not output_path then
