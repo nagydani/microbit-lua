@@ -270,6 +270,7 @@ if(EXISTS "${LD_PATCH_FILE}")
     )
     add_custom_target(patch_ld DEPENDS ${LD_PATCHED})
     add_dependencies(${CODAL_OUTPUT_NAME} patch_ld)
+    set_target_properties(${CODAL_OUTPUT_NAME} PROPERTIES LINK_DEPENDS ${LD_PATCHED})
 endif()
 
 #
