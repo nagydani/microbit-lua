@@ -19,6 +19,11 @@ firmware payload (the `source/lua-script.lua` file) is evaluated. This
 payload can be replaced by the `hextract` script without recompiling
 the firmware image.
 
+The hextract tool requires a known layout of the firmware. For that we
+need to edit the linker script, but that lives in the
+`codal-microbit-v2` repo. To avoid having to patch CODAL itself, we
+introduce a phase in our build script that applies the
+`source/nrf52833-softdevice.ld.diff` patch to CODAL's linker script.
 
 ## Building
 
@@ -44,8 +49,8 @@ The current directory will be shared with the container under
 
 The Microbit board exposes a pendrive-like interface. Mount it like
 any other pendrive and just copy the `MICROBIT.hex` file to it. While
-flashing the orange led next to the USB connector will be blinking
-fast. Then the firmware is automatically started.
+flashing, the orange led next to the USB connector will be blinking
+fast. A few seconds later the firmware is automatically started.
 
 To avoid manually mounting the drive, you can use this on an typical
 Linux:
