@@ -253,7 +253,7 @@ endif()
 # Patch the upstream linker script at build time so the submodule stays vanilla.
 #
 set(LD_UPSTREAM "${PROJECT_SOURCE_DIR}/${LIB_DEST}/codal-microbit-v2/ld/nrf52833-softdevice.ld")
-set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833-softdevice.ld.diff")
+set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833-softdevice.ld.patch")
 set(LD_PATCHED "${CMAKE_BINARY_DIR}/nrf52833-softdevice-patched.ld")
 
 if(EXISTS "${LD_PATCH_FILE}")
