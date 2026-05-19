@@ -1,5 +1,7 @@
-scroll('Lua alive')
+local uBit = microbit
+
+uBit.scroll("Lua alive")
 while true do
-  sleep(5000)
-  scroll('x')
+  uBit.sleep(5000)
+  uBit.scroll("x")
 end

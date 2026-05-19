@@ -22,8 +22,13 @@ extern MicroBit uBit;
 LUA_FUNCTION_LIST
 #undef X
 
-#define X(name, body) lua_register(L, #name, l_##name);
-void register_lua_api(lua_State *L) {
+#define X(name, body) {#name, l_##name},
+static const luaL_Reg l_microbit[] = {
     LUA_FUNCTION_LIST
-}
+    {NULL, NULL}
+};
 #undef X
+
+void register_lua_api(lua_State *L) {
+  luaL_register(L, "microbit", l_microbit);
+}
