@@ -6,7 +6,6 @@ extern "C" {
 }
 
 #include "MicroBit.h"
-#include "MicroBitDevice.h"
 
 extern MicroBit uBit;
 
