@@ -1,7 +1,7 @@
 local uBit = microbit
 
-uBit.scroll("Lua alive")
+uBit.display.scroll("Lua alive")
 while true do
   uBit.sleep(5000)
-  uBit.scroll(uBit.friendlyName())
+  uBit.display.scroll(uBit.friendlyName())
 end
