@@ -168,10 +168,41 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     int r = uBit.display.scroll(s, delay);		\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
-                  })
+                  })							\
+    X(animateAsync, { Image image = luaL_checkimage(L, 1);		\
+                    int delay = luaL_checkint(L, 2);			\
+                    int stride = luaL_checkint(L, 3);			\
+                    int startingPosition =				\
+                      luaL_optint(L, 4, DISPLAY_ANIMATE_DEFAULT_POS);	\
+                    int autoClear =					\
+                      luaL_optint(L, 5, DISPLAY_DEFAULT_AUTOCLEAR);	\
+                    int r = uBit.display.animateAsync(image,		\
+                                                      delay,		\
+                                                      stride,		\
+                                                      startingPosition,	\
+                                                      autoClear);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(animate,    { Image image = luaL_checkimage(L, 1);		\
+                    int delay = luaL_checkint(L, 2);			\
+                    int stride = luaL_checkint(L, 3);			\
+                    int startingPosition =				\
+                      luaL_optint(L, 4, DISPLAY_ANIMATE_DEFAULT_POS);	\
+                    int autoClear =					\
+                      luaL_optint(L, 5, DISPLAY_DEFAULT_AUTOCLEAR);	\
+                    int r = uBit.display.animate(image,			\
+                                                 delay,			\
+                                                 stride,		\
+                                                 startingPosition,	\
+                                                 autoClear);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+
 
 // I failed counting X expansions in LUA_DISPLAY_FUNCTIONS automatically
-#define LUA_DISPLAY_COUNT 18
+#define LUA_DISPLAY_COUNT 19
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
