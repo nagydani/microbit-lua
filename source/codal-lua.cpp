@@ -39,13 +39,83 @@ extern MicroBit uBit;
                     return 0;						\
                   })
 
+// create a Lua image table from C ImageData and place it on the stack
+void lua_createimage(lua_State *L, ImageData *ptr) {
+  int size = ptr->width * ptr->height;
+  lua_createtable(L, 0, 3);
+  lua_pushliteral(L, "width");
+  lua_pushinteger(L, ptr->width);
+  lua_settable(L, -3);
+  lua_pushliteral(L, "height");
+  lua_pushinteger(L, ptr->height);
+  lua_settable(L, -3);
+  lua_pushliteral(L, "data");
+  lua_createtable(L, size, 0);
+  for(int i = 0; i < size; i++) {
+    lua_pushinteger(L, ptr->data[i]);
+    lua_rawseti(L, -2, i + 1);
+  }
+  lua_settable(L, -3);
+}
+
+// check and return a Lua function argument as a C++ Image object
+Image luaL_checkimage(lua_State *L, int narg) {
+  Image r;
+  int width;
+  int height;
+  uint8_t value;
+  luaL_checktype(L, narg, LUA_TTABLE);
+  lua_getfield(L, narg, "width");
+  width = (int)lua_tointeger(L, -1);
+  lua_getfield(L, narg, "height");
+  height = (int)lua_tointeger(L, -1);
+  lua_pop(L, 2);
+  r = Image(width, height);
+  lua_getfield(L, narg, "data");
+  for(int y = 0; y < height; y++) {
+    for(int x = 0; x < width; x++) {
+      lua_pushinteger(L, 1 + x + width * y);
+      lua_gettable(L, -2);
+      value = (uint8_t)lua_tointeger(L, -1);
+      lua_pop(L, 1);
+      if(r.setPixelValue(x, y, value) != DEVICE_OK) {
+        lua_error(L);
+      }
+    }
+  }
+  lua_pop(L, 1);
+  return r;
+}
+
 #define LUA_DISPLAY_FUNCTIONS						\
-    X(scroll,     { uBit.display.scroll(luaL_checkstring(L, 1));	\
+    X(getWidth,   { lua_pushinteger(L, uBit.display.getWidth());	\
+                    return 1;						\
+                  })							\
+    X(getHeight,  { lua_pushinteger(L, uBit.display.getHeight());	\
+                    return 1;						\
+                  })							\
+    X(setBrightness, { int b = luaL_checkinteger(L, 1);			\
+                    int r = uBit.display.setBrightness(b);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getBrightness, { int r = uBit.display.getBrightness();		\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })							\
+    X(enable,     { uBit.display.enable();				\
+                    return 0;						\
+                  })							\
+    X(disable,     { uBit.display.disable();				\
+                    return 0;						\
+                  })							\
+    X(scroll,     {							\
+                    uBit.display.scroll(luaL_checkstring(L, 1));	\
                     return 0;						\
                   })
 
 // I failed counting X expansions in LUA_DISPLAY_FUNCTIONS automatically
-#define LUA_DISPLAY_COUNT 1
+#define LUA_DISPLAY_COUNT 7
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
