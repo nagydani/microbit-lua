@@ -87,6 +87,7 @@ Image luaL_checkimage(lua_State *L, int narg) {
   return r;
 }
 
+// see https://rneacy.dev/mbv2/ubit/display/
 #define LUA_DISPLAY_FUNCTIONS						\
     X(getWidth,   { lua_pushinteger(L, uBit.display.getWidth());	\
                     return 1;						\
@@ -94,7 +95,7 @@ Image luaL_checkimage(lua_State *L, int narg) {
     X(getHeight,  { lua_pushinteger(L, uBit.display.getHeight());	\
                     return 1;						\
                   })							\
-    X(setBrightness, { int b = luaL_checkinteger(L, 1);			\
+    X(setBrightness, { int b = luaL_checkint(L, 1);			\
                     int r = uBit.display.setBrightness(b);		\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
@@ -109,13 +110,68 @@ Image luaL_checkimage(lua_State *L, int narg) {
     X(disable,     { uBit.display.disable();				\
                     return 0;						\
                   })							\
-    X(scroll,     {							\
-                    uBit.display.scroll(luaL_checkstring(L, 1));	\
+    X(screenShot, { ImageData *ptr =					\
+                      uBit.display.screenShot().leakData();		\
+                    lua_createimage(L, ptr);				\
+                    ptr->decr();					\
+                    return 1;						\
+                  })							\
+    X(setDisplayMode, { DisplayMode mode = 				\
+                      static_cast<DisplayMode>(luaL_checkinteger(L, 1));\
+                    uBit.display.setDisplayMode(mode);			\
                     return 0;						\
+                  })							\
+    X(getDisplayMode, { DisplayMode mode =				\
+                      uBit.display.getDisplayMode();			\
+                    lua_pushinteger(L, static_cast<lua_Integer>(mode));	\
+                    return 1;						\
+                  })							\
+    X(clear,      { uBit.display.clear();				\
+                    return 0;						\
+                  })							\
+    X(readLightLevel, { int r = uBit.display.readLightLevel();		\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })							\
+    X(setSleep,   { NRF52LEDMatrix display = uBit.display;		\
+                    luaL_checkany(L, 1);				\
+                    display.setSleep(lua_toboolean(L, 1) != 0);		\
+                    return 0;						\
+                  })							\
+    X(stopAnimation, { uBit.display.stopAnimation();			\
+                    return 0;						\
+                  })							\
+    X(printAsync, { const char *s = luaL_checkstring(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_PRINT_SPEED);			\
+                    int r = uBit.display.printAsync(s, delay);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(print,      { const char *s = luaL_checkstring(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_PRINT_SPEED);			\
+                    int r = uBit.display.print(s, delay);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(scrollAsync, { const char *s = luaL_checkstring(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_SCROLL_SPEED);			\
+                    int r = uBit.display.scrollAsync(s, delay);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(scroll,     { const char *s = luaL_checkstring(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_SCROLL_SPEED);			\
+                    int r = uBit.display.scroll(s, delay);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
                   })
 
 // I failed counting X expansions in LUA_DISPLAY_FUNCTIONS automatically
-#define LUA_DISPLAY_COUNT 7
+#define LUA_DISPLAY_COUNT 18
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
