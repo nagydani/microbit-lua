@@ -31,6 +31,9 @@ extern MicroBit uBit;
     X(systemTime, { lua_pushinteger(L, (lua_Integer)uBit.systemTime());	\
                     return 1;						\
                   })							\
+    X(serialNumber, { lua_pushinteger(L, microbit_serial_number());	\
+                    return 1;						\
+                  })							\
     X(friendlyName, { lua_pushstring(L, microbit_friendly_name());	\
                     return 1;						\
                   })							\
@@ -199,14 +202,114 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
-
+    X(setPixelValue, {							\
+                    uint16_t x = (uint16_t)luaL_checkint(L, 1);		\
+                    uint16_t y = (uint16_t)luaL_checkint(L, 2);		\
+                    uint8_t value = (uint8_t)luaL_checkint(L, 3);	\
+                    int r =						\
+                      uBit.display.image.setPixelValue(x, y, value);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getPixelValue, {							\
+                    uint16_t x = (uint16_t)luaL_checkint(L, 1);		\
+                    uint16_t y = (uint16_t)luaL_checkint(L, 2);		\
+                    int r = uBit.display.image.getPixelValue(x, y);	\
+                    if(r != DEVICE_INVALID_PARAMETER) {			\
+                      lua_pushinteger(L, r);				\
+                      return 1;						\
+                    }							\
+                    return 0;						\
+                  })
 
 // I failed counting X expansions in LUA_DISPLAY_FUNCTIONS automatically
-#define LUA_DISPLAY_COUNT 19
+#define LUA_DISPLAY_COUNT 21
+
+// see https://rneacy.dev/mbv2/ubit/accelerometer/
+#define LUA_ACCELEROMETER_FUNCTIONS					\
+    X(setPeriod,  { int period = luaL_checkint(L, 1);			\
+                    int r = uBit.accelerometer.setPeriod(period);	\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(getPeriod,  { int r = uBit.accelerometer.getPeriod();		\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })							\
+    X(setRange,   { int range = luaL_checkint(L, 1);			\
+                    int r = uBit.accelerometer.setRange(range);		\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(getRange,   { int r = uBit.accelerometer.getRange();		\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })							\
+    X(getXYZ,     { lua_pushinteger(L, uBit.accelerometer.getX());	\
+                    lua_pushinteger(L, uBit.accelerometer.getY());	\
+                    lua_pushinteger(L, uBit.accelerometer.getZ());	\
+                    return 3;						\
+                  })							\
+    X(getGesture, { uint16_t r = uBit.accelerometer.getGesture();	\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })
+
+#define LUA_ACCELEROMETER_COUNT 6
+
+#define LUA_AUDIO_FUNCTIONS						\
+    X(getPin,     { lua_pushlightuserdata(L,				\
+                      &uBit.audio.virtualOutputPin);			\
+                    return 1;						\
+                  })							\
+    X(setVolume,  { int volume = luaL_checkint(L, 1);			\
+                    int r = uBit.audio.setVolume(volume);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getVolume,  { lua_pushinteger(L, uBit.audio.getVolume());		\
+                    return 1;						\
+                  })							\
+    X(express,    { const char *expression = luaL_checkstring(L, 1);	\
+                    uBit.audio.soundExpressions.playAsync(expression);	\
+                    return 0;						\
+                  })
+
+#define LUA_AUDIO_COUNT 4
+
+Pin *luaL_checkPin(lua_State *L, int narg) {
+  luaL_checktype(L, narg, LUA_TLIGHTUSERDATA);
+  return (Pin *)lua_touserdata(L, narg);
+}
+
+#define LUA_IO_FUNCTIONS						\
+    X(setDigitalValue, { 						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int value = luaL_checkint(L, 2);			\
+                    int r = pin->setDigitalValue(value);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getDigitalValue, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->getDigitalValue();			\
+                    if(r == 0 || r == 1) {				\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+
+
+#define LUA_IO_COUNT 2
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
 LUA_DISPLAY_FUNCTIONS
+LUA_ACCELEROMETER_FUNCTIONS
+LUA_AUDIO_FUNCTIONS
+LUA_IO_FUNCTIONS
 #undef X
 
 #define X(name, body) {#name, l_##name},
@@ -218,6 +321,18 @@ static const luaL_Reg l_display[] = {
     LUA_DISPLAY_FUNCTIONS
     {NULL, NULL}
 };
+static const luaL_Reg l_accelerometer[] = {
+    LUA_ACCELEROMETER_FUNCTIONS
+    {NULL, NULL}
+};
+static const luaL_Reg l_audio[] = {
+    LUA_AUDIO_FUNCTIONS
+    {NULL, NULL}
+};
+static const luaL_Reg l_io[] = {
+    LUA_IO_FUNCTIONS
+    {NULL, NULL}
+};
 #undef X
 
 void register_lua_api(lua_State *L) {
@@ -225,4 +340,12 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_DISPLAY_COUNT);
   luaL_register(L, NULL, l_display);
   lua_setfield(L, -2, "display");
+  lua_createtable(L, 0, LUA_ACCELEROMETER_COUNT);
+  luaL_register(L, NULL, l_accelerometer);
+  lua_setfield(L, -2, "accelerometer");
+  lua_createtable(L, 0, LUA_AUDIO_COUNT);
+  luaL_register(L, NULL, l_audio);
+  lua_setfield(L, -2, "audio");
+  luaL_register(L, NULL, l_io);
+  lua_setfield(L, -2, "io");
 }

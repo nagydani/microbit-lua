@@ -5,16 +5,23 @@ local heart = {
   height = 5,
   data = {
       0,   0,   0,   0,   0,    0, 255,   0, 255,   0,
-      0, 255,   0, 255,   0,  255,   0, 255,   0, 255,
-      0, 255, 255, 255,   0,  255,   0,   0,   0, 255,
-      0,   0, 255,   0,   0,    0, 255,   0, 255,   0,
+      0, 255,   0, 255,   0,  255,  64, 255,  64, 255,
+      0, 255, 255, 255,   0,  255,  64,  64,  64, 255,
+      0,   0, 255,   0,   0,    0, 255,  64, 255,   0,
       0,   0,   0,   0,   0,    0,   0, 255,   0,   0
   }
 }
 
 uBit.display.scroll("Lua alive")
+uBit.audio.setVolume(255)
+uBit.audio.express("giggle")
 while true do
-  uBit.display.animateAsync(heart, 1000, 5)
-  uBit.sleep(10000)
+  uBit.display.animate(heart, 1000, 5)
+  for i = 1, 100 do
+    uBit.sleep(100)
+    if uBit.accelerometer.getGesture() > 0 then
+      uBit.display.scroll("EVT")
+    end
+  end
   uBit.display.scroll(uBit.friendlyName())
 end
