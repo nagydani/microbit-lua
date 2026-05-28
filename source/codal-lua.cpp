@@ -258,7 +258,7 @@ Image luaL_checkimage(lua_State *L, int narg) {
 #define LUA_ACCELEROMETER_COUNT 6
 
 #define LUA_AUDIO_FUNCTIONS						\
-    X(getPin,     { lua_pushlightuserdata(L,				\
+    X(getAudioPin, { lua_pushlightuserdata(L,				\
                       &uBit.audio.virtualOutputPin);			\
                     return 1;						\
                   })							\
@@ -300,9 +300,188 @@ Pin *luaL_checkPin(lua_State *L, int narg) {
                     }							\
                     return 1;						\
                   })							\
+    X(setAnalogValue, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int value = luaL_checkint(L, 2);			\
+                    int r = pin->setAnalogValue(value);			\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setServoValue, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int value = luaL_checkint(L, 2);			\
+                    int range = luaL_optint(L, 3,			\
+                      DEVICE_PIN_DEFAULT_SERVO_RANGE);			\
+                    int center = luaL_optint(L, 4,			\
+                      DEVICE_PIN_DEFAULT_SERVO_CENTER);			\
+                    int r = pin->setServoValue(value, range, center);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getAnalogValue, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->getAnalogValue();			\
+                    if(r >= 0 || r <= 1024) {				\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(isInput,    { Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushboolean(L, pin->isInput() == 1);		\
+                    return 1;						\
+                  })							\
+    X(isOutput,   { Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushboolean(L, pin->isOutput() == 1);		\
+                    return 1;						\
+                  })							\
+    X(isDigital,  { Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushboolean(L, pin->isDigital() == 1);		\
+                    return 1;						\
+                  })							\
+    X(isAnalog,   { Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushboolean(L, pin->isAnalog() == 1);		\
+                    return 1;						\
+                  })							\
+    X(isTouched,  { Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushboolean(L, pin->isTouched() == 1);		\
+                    return 1;						\
+                  })							\
+    X(setServoPulseUs, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    uint32_t pulseWidth =				\
+                      (uint32_t)luaL_checkinteger(L, 2); 		\
+                    int r = pin->setServoPulseUs(pulseWidth);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setAnalogPeriod, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int period = luaL_checkint(L, 2);			\
+                    int r = pin->setAnalogPeriod(period);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setAnalogPeriodUs, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    uint32_t period =					\
+                      (uint32_t)luaL_checkinteger(L, 2);		\
+                    int r = pin->setAnalogPeriodUs(period);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getAnalogPeriodUs, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    uint32_t r = pin->getAnalogPeriodUs();		\
+                    if((int)r != DEVICE_NOT_SUPPORTED) {		\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(getAnalogPeriod, {						\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->getAnalogPeriod();			\
+                    if(r != DEVICE_NOT_SUPPORTED) {			\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(setPullUp,  { Pin *pin = luaL_checkPin(L,1);			\
+                    int r = pin->setPull((PullMode)PullUp);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setPullDown, {							\
+                    Pin *pin = luaL_checkPin(L,1);			\
+                    int r = pin->setPull((PullMode)PullDown);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setPullNone, {							\
+                    Pin *pin = luaL_checkPin(L,1);			\
+                    int r = pin->setPull((PullMode)PullNone);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(drainPin,   { Pin *pin = luaL_checkPin(L,1);			\
+                    int r = pin->drainPin();				\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getPulseUs, { Pin *pin = luaL_checkPin(L, 1);			\
+                    int timeout = luaL_checkint(L, 2);			\
+                    int r = pin->getPulseUs(timeout);			\
+                    if(r != DEVICE_CANCELLED) {				\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(eventOnEdge, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->eventOn(DEVICE_PIN_EVENT_ON_EDGE);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(eventOnPulse, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->eventOn(DEVICE_PIN_EVENT_ON_PULSE);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(eventOnTouch, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->eventOn(DEVICE_PIN_EVENT_ON_TOUCH);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(eventNone,  { Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->eventOn(DEVICE_PIN_EVENT_NONE);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(isActive,   { Pin *pin = luaL_checkPin(L, 1);			\
+                    int r = pin->isActive();				\
+                    lua_pushboolean(L, r == 1);				\
+                    return 1;						\
+                  })							\
+    X(setPolarity, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    int polarity = luaL_checkint(L, 2);			\
+                    pin->setPolarity(polarity);				\
+                    return 0;						\
+                  })							\
+    X(getPolarity, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    lua_pushinteger(L, pin->getPolarity());		\
+                    return 1;						\
+                  })							\
+    X(setActiveHi, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    pin->setActiveHi();					\
+                    return 0;						\
+                  })							\
+    X(setActiveLo, {							\
+                    Pin *pin = luaL_checkPin(L, 1);			\
+                    pin->setActiveLo();					\
+                    return 0;						\
+                  })							\
+    X(disconnect, { Pin *pin = luaL_checkPin(L, 1);			\
+                    pin->disconnect();					\
+                    return 0;						\
+                  })							\
+    X(getPin,     { int pin = luaL_checkint(L, 1);			\
+                    lua_pushlightuserdata(L, &uBit.io.pin[pin]);	\
+                    return 1;						\
+                  })
 
-
-#define LUA_IO_COUNT 2
+#define LUA_IO_COUNT 31
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS

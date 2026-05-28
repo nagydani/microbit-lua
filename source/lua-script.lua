@@ -17,11 +17,6 @@ uBit.audio.setVolume(255)
 uBit.audio.express("giggle")
 while true do
   uBit.display.animate(heart, 1000, 5)
-  for i = 1, 100 do
-    uBit.sleep(100)
-    if uBit.accelerometer.getGesture() > 0 then
-      uBit.display.scroll("EVT")
-    end
-  end
+  uBit.sleep(2000)
   uBit.display.scroll(uBit.friendlyName())
 end
