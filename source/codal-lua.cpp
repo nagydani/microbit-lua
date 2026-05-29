@@ -682,4 +682,6 @@ void register_lua_api(lua_State *L) {
   lua_setfield(L, -2, "audio");
   luaL_register(L, NULL, l_io);
   lua_setfield(L, -2, "io");
+  luaL_register(L, NULL, l_serial);
+  lua_setfield(L, -2, "serial");
 }

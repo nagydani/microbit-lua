@@ -12,11 +12,13 @@ local heart = {
   }
 }
 
-uBit.display.scroll("Lua alive")
+local friendlyName = uBit.friendlyName()
+
 uBit.audio.setVolume(255)
 uBit.audio.express("giggle")
+uBit.display.animate(heart, 1000, 5)
+uBit.serial.send("micro:bit Lua\n")
 while true do
-  uBit.display.animate(heart, 1000, 5)
-  uBit.sleep(2000)
-  uBit.display.scroll(uBit.friendlyName())
+  uBit.sleep(5000)
+  uBit.display.scroll(friendlyName)
 end
