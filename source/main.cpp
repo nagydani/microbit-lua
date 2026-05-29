@@ -30,65 +30,12 @@ extern const LuaMeta __lua_meta;
 
 MicroBit uBit;
 
-// BLE manager (initializes SoftDevice / BLE stack)
-MicroBitBLEManager bleManager();
-
-// UART service (Nordic UART over BLE)
-MicroBitUARTService *uart;
-
-void onBLEConnected(MicroBitEvent)
-{
-    uBit.display.print("C");  // Connected
-}
-
-void onBLEDisconnected(MicroBitEvent)
-{
-    uBit.display.print("D");  // Disconnected
-}
-
-void onDataReceived(MicroBitEvent)
-{
-    // Read incoming BLE data (RX characteristic)
-    ManagedString msg = uart->readUntil("\n");
-
-    // Echo to LED display
-    uBit.display.scrollAsync(msg);
-
-    // Echo back to laptop (TX notify)
-    uart->send("echoing: " + msg);
-}
-
 static int lua_panic_handler(lua_State *L) {
     (void)L;
     while (true) {
         uBit.display.scroll("Lua panic");
         uBit.sleep(1000);
     }
-}
-
-void setup_ble_echo_service() {
-    // Create UART service over BLE
-    uart = new MicroBitUARTService(*uBit.ble, 32, 32);
-    uart->eventOn("\n");
-
-    // Register event handlers
-    uBit.messageBus.listen(
-        MICROBIT_ID_BLE,
-        MICROBIT_BLE_EVT_CONNECTED,
-        onBLEConnected
-    );
-
-    uBit.messageBus.listen(
-        MICROBIT_ID_BLE,
-        MICROBIT_BLE_EVT_DISCONNECTED,
-        onBLEDisconnected
-    );
-
-    uBit.messageBus.listen(
-        MICROBIT_ID_BLE_UART,
-        MICROBIT_UART_S_EVT_DELIM_MATCH,
-        onDataReceived
-    );
 }
 
 int main() {
@@ -103,8 +50,6 @@ int main() {
             uBit.sleep(1000);
         }
     }
-
-    setup_ble_echo_service();
 
     /* Create Lua state using CODAL heap */
     lua_State *L = luaL_newstate();
