@@ -252,12 +252,22 @@ endif()
 #
 # Patch the upstream linker script at build time so the submodule stays vanilla.
 #
-set(LD_UPSTREAM "${PROJECT_SOURCE_DIR}/${LIB_DEST}/codal-microbit-v2/ld/nrf52833-softdevice.ld")
-set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833-softdevice.ld.patch")
-set(LD_PATCHED "${CMAKE_BINARY_DIR}/nrf52833-softdevice-patched.ld")
+if(codal.config.DEVICE_BLE)
+    set(LD_UPSTREAM "${PROJECT_SOURCE_DIR}/${LIB_DEST}/codal-microbit-v2/ld/nrf52833-softdevice.ld")
+    set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833-softdevice.ld.patch")
+else()
+    set(LD_UPSTREAM "${PROJECT_SOURCE_DIR}/${LIB_DEST}/codal-microbit-v2/ld/nrf52833.ld")
+    set(LD_PATCH_FILE "${PROJECT_SOURCE_DIR}/source/nrf52833.ld.patch")
+endif()
+
+set(LD_PATCHED "${CMAKE_BINARY_DIR}/nrf52833-patched.ld")
 
 if(EXISTS "${LD_PATCH_FILE}")
     # Point the linker to the patched file (replaces the -T flag set by codal-microbit-v2)
+    if(NOT CMAKE_LINKER_FLAGS MATCHES "${LD_UPSTREAM}"
+       OR NOT CMAKE_EXE_LINKER_FLAGS MATCHES "${LD_UPSTREAM}")
+         message(FATAL_ERROR "Expected linker script '${LD_UPSTREAM}' not found in CMAKE_LINKER_FLAGS")
+    endif()
     string(REPLACE "${LD_UPSTREAM}" "${LD_PATCHED}" CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS}")
     string(REPLACE "${LD_UPSTREAM}" "${LD_PATCHED}" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
 
