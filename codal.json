@@ -6,6 +6,8 @@
         "type": "git"
     },
     "config":{
+	"DMESG_SERIAL_DEBUG": 0,
+	"CODAL_DEBUG": 0,
         "DEVICE_BLE": 0,
         "MICROBIT_BLE_PAIRING_MODE": 1,
         "MICROBIT_BLE_DFU_SERVICE": 1,

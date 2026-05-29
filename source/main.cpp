@@ -41,6 +41,8 @@ static int lua_panic_handler(lua_State *L) {
 int main() {
     uBit.init();
 
+    DMESG("main speaking");
+
     if ((__lua_meta.end - __lua_meta.start != __lua_meta.size)
         || __lua_meta.magic != LUA_META_MAGIC)
     {

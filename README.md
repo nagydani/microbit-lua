@@ -71,6 +71,31 @@ Some technical details are documented in
 [utils/hextract.md](utils/hextract.md).
 
 
+## Serial connection
+
+When the microbit is attached with a USB cable, then this should open
+a serial console:
+
+```
+screen /dev/ttyACM0 115200
+```
+
+If `/dev/ttyACM0` is not present, then look at `dmesg --follow` while
+you plug in your board.
+
+
+## Debugging
+
+The `codal.json` file has two variables:
+
+`DMESG_SERIAL_DEBUG`: writes the `DMESG` output to the serial
+port. You can also add `DMESG("hello");` lines to your own C++ code.
+
+`CODAL_DEBUG`:
+ - 1: general debug info
+ - 2: heap allocation info
+
+
 # Where
 
 The project's home is at
