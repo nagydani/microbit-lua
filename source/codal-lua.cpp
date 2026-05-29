@@ -483,12 +483,81 @@ Pin *luaL_checkPin(lua_State *L, int narg) {
 
 #define LUA_IO_COUNT 31
 
+void lua_pushManagedString(lua_State *L, ManagedString s) {
+  lua_pushlstring(L, s.toCharArray(), s.length());
+}
+
+ManagedString luaL_checkManagedString(lua_State *L, int narg) {
+  size_t length;
+  const char *str = luaL_checklstring(L, narg, &length);
+  return ManagedString(str, length);
+}
+
+#define LUA_SERIAL_FUNCTIONS						\
+    X(send,       { ManagedString s = luaL_checkManagedString(L, 1);	\
+                    int r = uBit.serial.send(s, SYNC_SLEEP);		\
+                    if(r != DEVICE_SERIAL_IN_USE &&			\
+                       r != DEVICE_INVALID_PARAMETER) {			\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(sendAsync,  { ManagedString s = luaL_checkManagedString(L, 1);	\
+                    int r = uBit.serial.send(s, ASYNC);			\
+                    if(r != DEVICE_SERIAL_IN_USE &&			\
+                       r != DEVICE_INVALID_PARAMETER) {			\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(getByte,    { int r = uBit.serial.getChar(SYNC_SLEEP);		\
+                    lua_pushinteger(L, r);				\
+                    return 1;						\
+                  })							\
+    X(getByteAsync, {							\
+                    int r = uBit.serial.getChar(ASYNC);			\
+                    if(r != DEVICE_NO_DATA) {				\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(read,       { int size = luaL_checkint(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uBit.serial.read(size, SYNC_SLEEP));		\
+                    return 1;						\
+                  })							\
+    X(readAsync,  { int size = luaL_checkint(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uBit.serial.read(size, ASYNC));			\
+                    return 1;						\
+                  })							\
+    X(readUntil,  { ManagedString delimiters =				\
+                      luaL_checkManagedString(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uBit.serial.readUntil(delimiters, SYNC_SLEEP));	\
+                    return 1;						\
+                  })							\
+    X(setBaud,    { int baudrate = luaL_checkint(L, 1);			\
+                    int r = uBit.serial.setBaud(baudrate);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+
+#define LUA_SERIAL_COUNT 8
+
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
 LUA_DISPLAY_FUNCTIONS
 LUA_ACCELEROMETER_FUNCTIONS
 LUA_AUDIO_FUNCTIONS
 LUA_IO_FUNCTIONS
+LUA_SERIAL_FUNCTIONS
 #undef X
 
 #define X(name, body) {#name, l_##name},
@@ -510,6 +579,10 @@ static const luaL_Reg l_audio[] = {
 };
 static const luaL_Reg l_io[] = {
     LUA_IO_FUNCTIONS
+    {NULL, NULL}
+};
+static const luaL_Reg l_serial[] = {
+    LUA_SERIAL_FUNCTIONS
     {NULL, NULL}
 };
 #undef X
