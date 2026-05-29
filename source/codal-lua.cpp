@@ -548,8 +548,90 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
+    X(redirect,   { Pin *tx = luaL_checkPin(L, 1);			\
+                    Pin *rx = luaL_checkPin(L, 2);			\
+                    int r = uBit.serial.redirect(*tx, *rx);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(eventAfter, { uBit.serial.eventAfter(luaL_checkint(L, 1),		\
+                                           SYNC_SLEEP);			\
+                    return 0;						\
+                  })							\
+    X(eventAfterAsync, {						\
+                    uBit.serial.eventAfter(luaL_checkint(L, 1),		\
+                                           ASYNC);			\
+                    return 0;						\
+                  })							\
+    X(eventOn,    { uBit.serial.eventOn(luaL_checkManagedString(L, 1),	\
+                                           SYNC_SLEEP);			\
+                    return 0;						\
+                  })							\
+    X(eventOnAsync, {							\
+                    uBit.serial.eventOn(luaL_checkManagedString(L, 1),	\
+                                           ASYNC);			\
+                    return 0;						\
+                  })							\
+    X(isReadable, { int r = uBit.serial.isReadable();			\
+                    if(r == 0 || r == 1) {				\
+                      lua_pushboolean(L, r == 1);			\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(isWriteable, {							\
+                    lua_pushboolean(L, uBit.serial.isWriteable() == 1);	\
+                    return 1;						\
+                  })							\
+    X(setRxBufferSize, {						\
+                    uint8_t size = luaL_checkint(L, 1);			\
+                    int r = uBit.serial.setRxBufferSize(size);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(setTxBufferSize, {						\
+                    uint8_t size = luaL_checkint(L, 1);			\
+                    int r = uBit.serial.setTxBufferSize(size);		\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(getRxBufferSize, {						\
+                    lua_pushinteger(L, uBit.serial.getRxBufferSize());	\
+                    return 1;						\
+                  })							\
+    X(getTxBufferSize, {						\
+                    lua_pushinteger(L, uBit.serial.getTxBufferSize());	\
+                    return 1;						\
+                  })							\
+    X(clearRxBuffer, {							\
+                    lua_pushboolean(L,					\
+                      uBit.serial.clearRxBuffer() == DEVICE_OK);	\
+                    return 1;						\
+                  })							\
+    X(clearTxBuffer, {							\
+                    lua_pushboolean(L,					\
+                      uBit.serial.clearTxBuffer() == DEVICE_OK);	\
+                    return 1;						\
+                  })							\
+    X(rxBufferedSize, {							\
+                    lua_pushinteger(L, uBit.serial.rxBufferedSize());	\
+                    return 1;						\
+                  })							\
+    X(txBufferedSize, {							\
+                    lua_pushinteger(L,uBit.serial.txBufferedSize());	\
+                    return 1;						\
+                  })							\
+    X(rxInUse,    { lua_pushboolean(L,					\
+                      uBit.serial.rxInUse() != 0);			\
+                    return 1;						\
+                  })							\
+    X(txInUse,    { lua_pushboolean(L,					\
+                      uBit.serial.txInUse() != 0);			\
+                    return 1;						\
+                  })
 
-#define LUA_SERIAL_COUNT 8
+#define LUA_SERIAL_COUNT 25
 
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
