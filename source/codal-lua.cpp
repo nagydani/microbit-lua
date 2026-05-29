@@ -680,8 +680,10 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_AUDIO_COUNT);
   luaL_register(L, NULL, l_audio);
   lua_setfield(L, -2, "audio");
+  lua_createtable(L, 0, LUA_IO_COUNT);
   luaL_register(L, NULL, l_io);
   lua_setfield(L, -2, "io");
+  lua_createtable(L, 0, LUA_SERIAL_COUNT);
   luaL_register(L, NULL, l_serial);
   lua_setfield(L, -2, "serial");
 }
