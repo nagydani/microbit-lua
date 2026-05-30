@@ -91,6 +91,20 @@ cmake --build build -v
 * flashing
 udisksctl mount -b $(lsblk -o NAME,LABEL | awk '$2=="MICROBIT"{print "/dev/"$1}') && \
   cp MICROBIT.hex /run/media/${USER}/MICROBIT/
+* debugging
+** cpp code
+in codal.json:
+ - set DMESG_SERIAL_DEBUG to 1
+ - set CODAL_DEBUG to
+   - 1 for general messages
+   - 2 for malloc/heap info
+
+in the cpp files:  
+  DMESG("device_realloc size=%d caller=%p", size, __builtin_return_address(0));
+  $ arm-none-eabi-addr2line -e build/MICROBIT 0x0002A97B
+** hextract and firmware layout
+arm-none-eabi-objdump --all build/MICROBIT | grep -A 10 lua_meta
+arm-none-eabi-objdump -s --start-address=0x7fff0 --stop-address=0x80000 build/MICROBIT
 * CODAL
 ** config
 defaults:
