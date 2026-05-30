@@ -15,10 +15,48 @@ If <output> is "-" or omitted for extract, the payload is written to stdout.
 If <output.hex> is omitted for embed, you will be prompted to overwrite.
 ]]
 
--- Constants from linker script (nrf52833-softdevice.ld)
-local LUA_META_ADDR = 0x76FF0
-local LUA_META_LEN  = 0x10
+-- Constants from linker script
+local LUA_META_LEN  = 0x14  -- 5 x 32-bit words
 local LUA_MAGIC     = 0x4C554131
+
+local function u32_le(bytes, offset)
+    offset = offset or 1
+    return bytes[offset]
+         + bytes[offset+1] * 0x100
+         + bytes[offset+2] * 0x10000
+         + bytes[offset+3] * 0x1000000
+end
+
+----------------------------------------------------------------------
+-- Metadata detection
+----------------------------------------------------------------------
+
+-- Scan all blocks for the LUA1 magic value and validate the metadata.
+-- Returns the physical address where the metadata starts, or nil.
+local function find_meta_addr(blocks)
+    for _, block in ipairs(blocks) do
+        -- Scan at 4-byte aligned offsets (metadata is ALIGN(4) in linker)
+        local limit = block.length - 19
+        for i = 1, limit, 4 do
+            local magic = u32_le(block.bytes, i)
+            if magic == LUA_MAGIC then
+                local script_start = u32_le(block.bytes, i + 4)
+                local script_end   = u32_le(block.bytes, i + 8)
+                local script_size  = u32_le(block.bytes, i + 12)
+                local space        = u32_le(block.bytes, i + 16)
+                -- Validate: start < end, size matches, space is reasonable
+                if script_start < script_end
+                   and script_size == script_end - script_start
+                   and script_size > 0
+                   and script_size < space
+                   and space < 512 * 1024 then
+                    return block.start_addr + i - 1
+                end
+            end
+        end
+    end
+    return nil
+end
 
 ----------------------------------------------------------------------
 -- Bitwise helpers for Lua 5.1
@@ -363,14 +401,6 @@ local function fmt_size(n)
     end
 end
 
-local function u32_le(bytes, offset)
-    offset = offset or 1
-    return bytes[offset]
-         + bytes[offset+1] * 0x100
-         + bytes[offset+2] * 0x10000
-         + bytes[offset+3] * 0x1000000
-end
-
 local function u32_to_le_bytes(val)
     return {
         val % 0x100,
@@ -380,13 +410,14 @@ local function u32_to_le_bytes(val)
     }
 end
 
-local function pack_meta(magic, start, end_addr, size)
+local function pack_meta(magic, start, end_addr, size, available_space)
     local b = {}
     local p = 1
     for _, v in ipairs(u32_to_le_bytes(magic)) do b[p] = v; p = p + 1 end
     for _, v in ipairs(u32_to_le_bytes(start)) do b[p] = v; p = p + 1 end
     for _, v in ipairs(u32_to_le_bytes(end_addr)) do b[p] = v; p = p + 1 end
     for _, v in ipairs(u32_to_le_bytes(size)) do b[p] = v; p = p + 1 end
+    for _, v in ipairs(u32_to_le_bytes(available_space)) do b[p] = v; p = p + 1 end
     return b
 end
 
@@ -428,21 +459,19 @@ local function cmd_structure(args)
     end
     print()
 
-    print(string.format("=== LUA METADATA (0x%08X) ===", LUA_META_ADDR))
-    local meta_bytes = read_bytes(blocks, LUA_META_ADDR, LUA_META_LEN)
-    local all_zero = true
-    for i = 1, LUA_META_LEN do
-        if meta_bytes[i] ~= 0 then all_zero = false; break end
-    end
-
-    if all_zero then
-        print("  No metadata found at this address (all zeros)")
+    print("=== LUA METADATA ===")
+    local meta_addr = find_meta_addr(blocks)
+    if not meta_addr then
+        print("  No metadata found (LUA1 magic not detected)")
         print("  The firmware may not have a Lua payload embedded")
     else
+        print(string.format("  Found at 0x%08X", meta_addr))
+        local meta_bytes = read_bytes(blocks, meta_addr, LUA_META_LEN)
         local magic = u32_le(meta_bytes, 1)
         local script_start = u32_le(meta_bytes, 5)
         local script_end   = u32_le(meta_bytes, 9)
         local script_size  = u32_le(meta_bytes, 13)
+        local avail_space  = u32_le(meta_bytes, 17)
 
         local magic_str
         if magic == LUA_MAGIC then
@@ -454,6 +483,7 @@ local function cmd_structure(args)
         print(string.format("  Start: 0x%08X (%d)", script_start, script_start))
         print(string.format("  End:   0x%08X (%d)", script_end, script_end))
         print(string.format("  Size:  0x%08X (%d)", script_size, script_size))
+        print(string.format("  Space: 0x%08X (%d)", avail_space, avail_space))
 
         local calc_size = script_end - script_start
         print()
@@ -474,10 +504,11 @@ local function cmd_structure(args)
             print(string.format("    WARNING: Size (%d) != End - Start (%d)", script_size, calc_size))
         end
 
-        if magic == LUA_MAGIC and script_start < script_end and calc_size > 0 and calc_size < 100000 then
-            local script_bytes = read_bytes(blocks, script_start, calc_size)
+        if magic == LUA_MAGIC and script_start < script_end and calc_size > 0 and calc_size < 512 * 1024 then
+            local preview_len = math.min(calc_size, 256)
+            local script_bytes = read_bytes(blocks, script_start, preview_len)
             local script_str = ""
-            for i = 1, calc_size do
+            for i = 1, preview_len do
                 local b = script_bytes[i]
                 if b >= 32 and b < 127 then
                     script_str = script_str .. string.char(b)
@@ -488,7 +519,7 @@ local function cmd_structure(args)
                 end
             end
             print()
-            print("  Script preview:")
+            print("  Script preview (first " .. preview_len .. " bytes):")
             for l in script_str:gmatch("[^\n]*\n?") do
                 if l ~= "" then
                     print("    " .. l)
@@ -562,16 +593,13 @@ local function cmd_extract(args)
 
     local blocks = parsed.blocks
 
-    local meta_bytes = read_bytes(blocks, LUA_META_ADDR, LUA_META_LEN)
-    local all_zero = true
-    for i = 1, LUA_META_LEN do
-        if meta_bytes[i] ~= 0 then all_zero = false; break end
-    end
-
-    if all_zero then
-        io.stderr:write("Error: no Lua metadata found at 0x" .. string.format("%08X", LUA_META_ADDR) .. "\n")
+    local meta_addr = find_meta_addr(blocks)
+    if not meta_addr then
+        io.stderr:write("Error: no Lua metadata found (LUA1 magic not detected)\n")
         return 1
     end
+
+    local meta_bytes = read_bytes(blocks, meta_addr, LUA_META_LEN)
 
     local magic = u32_le(meta_bytes, 1)
     local script_start = u32_le(meta_bytes, 5)
@@ -646,30 +674,18 @@ local function cmd_embed(args)
 
     local blocks = parsed.blocks
 
-    local meta_bytes = read_bytes(blocks, LUA_META_ADDR, LUA_META_LEN)
-    local all_zero = true
-    for i = 1, LUA_META_LEN do
-        if meta_bytes[i] ~= 0 then all_zero = false; break end
-    end
-
-    if all_zero then
-        io.stderr:write("Error: no Lua metadata found\n")
+    local meta_addr = find_meta_addr(blocks)
+    if not meta_addr then
+        io.stderr:write("Error: no Lua metadata found (LUA1 magic not detected)\n")
         return 1
     end
+
+    local meta_bytes = read_bytes(blocks, meta_addr, LUA_META_LEN)
 
     local magic = u32_le(meta_bytes, 1)
     local old_start = u32_le(meta_bytes, 5)
     local old_end = u32_le(meta_bytes, 9)
-
-    if magic ~= LUA_MAGIC then
-        io.stderr:write("Error: invalid metadata magic\n")
-        return 1
-    end
-
-    if old_start >= old_end then
-        io.stderr:write("Error: invalid script range in metadata\n")
-        return 1
-    end
+    local avail_space = u32_le(meta_bytes, 17)
 
     local script_file = io.open(script_path, "rb")
     if not script_file then
@@ -680,11 +696,15 @@ local function cmd_embed(args)
     script_file:close()
     local script_len = #script_data
 
-    local max_size = LUA_META_ADDR - old_start
-    if script_len > max_size then
+    if script_len > avail_space then
         io.stderr:write(string.format(
             "Error: script too large: %d bytes, max %d bytes\n",
-            script_len, max_size))
+            script_len, avail_space))
+        return 1
+    end
+
+    if old_start >= old_end then
+        io.stderr:write("Error: invalid script range in metadata\n")
         return 1
     end
 
@@ -698,8 +718,8 @@ local function cmd_embed(args)
 
     replace_block_range(blocks, old_start, old_len, script_bytes)
 
-    local meta_data = pack_meta(LUA_MAGIC, old_start, new_end, script_len)
-    write_bytes(blocks, LUA_META_ADDR, meta_data)
+    local meta_data = pack_meta(LUA_MAGIC, old_start, new_end, script_len, avail_space)
+    write_bytes(blocks, meta_addr, meta_data)
 
     if not output_path then
         if overwrite then

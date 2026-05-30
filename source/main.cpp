@@ -16,6 +16,7 @@ struct LuaMeta {
     uint32_t start;
     uint32_t end;
     uint32_t size;
+    uint32_t space;
 };
 
 #define LUA_META_MAGIC 0x4C554131

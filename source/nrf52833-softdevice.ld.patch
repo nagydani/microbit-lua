@@ -1,19 +1,6 @@
-diff --git a/ld/nrf52833-softdevice.ld b/ld/nrf52833-softdevice.ld
-index 9b0585c..7f41be1 100644
---- a/ld/nrf52833-softdevice.ld
-+++ b/ld/nrf52833-softdevice.ld
-@@ -2,7 +2,9 @@ MEMORY
- {
-   MBR (rx) : ORIGIN = 0x0000, LENGTH = 0x1000
-   SD (rx) : ORIGIN = 0x1000, LENGTH = 0x1B000
--  FLASH (rx) : ORIGIN = 0x1C000, LENGTH = 0x77000 - 0x1C000
-+  FLASH (rx) : ORIGIN = 0x1C000, LENGTH = 0x76FF0 - 0x1C000
-+  /* 4 32-bit words that tells where the lua script is. */
-+  LUA_META (r) : ORIGIN = 0x76FF0, LENGTH = 0x77000 - 0x76FF0
-   BOOTLOADER (rx) : ORIGIN = 0x77000, LENGTH = 0x7E000 - 0x77000
-   SETTINGS (rx) : ORIGIN = 0x7E000, LENGTH = 0x2000
-   UICR (rx) : ORIGIN = 0x10001014, LENGTH = 0x8
-@@ -169,6 +171,45 @@ SECTIONS
+--- ld/nrf52833-softdevice.ld	2026-05-14 19:48:02.067603366 +0000
++++ ld/nrf52833-softdevice-patched.ld	2026-05-30 15:29:47.870589492 +0000
+@@ -169,6 +169,41 @@
          __data_end__ = .;
      } > RAM
      __edata = .;
@@ -23,38 +10,34 @@ index 9b0585c..7f41be1 100644
 +       Its VMA (runtime address) is in RAM. The C runtime copies the
 +       initialized data from FLASH to RAM at startup.
 +
-+       We place the lua script at the FLASH address right after the
-+       .data LMA. By specifying an explicit address on the section
-+       definition, both VMA and LMA are set to that FLASH address.
++       We place the lua metadata block right after the .data LMA,
++       followed by the lua script. This ordering maximizes the space
++       available for the script, since it can grow up to the
++       storage/bootloader boundary.
++
 +       The C++ code reads the script directly from FLASH via the
 +       linker symbols, so no RAM copy is needed.
-+
-+       This layout leaves all FLASH space between the script end and
-+       0x76FF0 available for embedding larger scripts via hextract.
 +    */
-+    __lua_script_addr = __etext + SIZEOF(.data);
++    __lua_script_max_end = ORIGIN(FLASH) + LENGTH(FLASH);
 +
-+    .lua_script __lua_script_addr :
++    . = ALIGN(4);
++
++    .lua_meta (__etext + SIZEOF(.data)) :
++    {
++        __lua_meta = .;
++        LONG(0x4C554131) /* LUA1 */
++        LONG(__lua_script_start)
++        LONG(__lua_script_end)
++        LONG(__lua_script_end - __lua_script_start)
++        LONG(__lua_script_max_end - __lua_script_start)
++    } > FLASH
++
++    .lua_script :
 +    {
 +        __lua_script_start = .;
 +        KEEP(*(.lua_script))
 +        __lua_script_end = .;
 +    } > FLASH
-+
-+    ASSERT(__lua_script_end <= ORIGIN(LUA_META),
-+           "FLASH overflow into bootloader, Lua script is too large")
-+
-+    /*
-+       Metadata block at a fixed address, read by the firmware at runtime.
-+    */
-+    .lua_meta :
-+    {
-+        LONG(0x4C554131) /* LUA1 */
-+        LONG(__lua_script_start)
-+        LONG(__lua_script_end)
-+        LONG(__lua_script_end - __lua_script_start)
-+    } > LUA_META
-+    __lua_meta = ADDR(.lua_meta);
 +
      .bss :
      {

@@ -51,21 +51,17 @@ CC = (-(LL + AH + AL + TT + DD[0] + ... + DD[n])) & 0xFF
 
 ## Firmware Memory Layout (nRF52833)
 
-Based on `libraries/codal-microbit-v2/ld/nrf52833-softdevice.ld`:
+As defined by the two linker scripts:
+ - `libraries/codal-microbit-v2/ld/nrf52833.ld`
+ - `libraries/codal-microbit-v2/ld/nrf52833-softdevice.ld` (used when
+   BLE support is included/enabled)
 
-| Region | Origin | Length | Purpose |
-|--------|--------|--------|---------|
-| MBR | 0x0000 | 0x1000 | Master Boot Record |
-| SD | 0x1000 | 0x1B000 | SoftDevice (BLE stack) |
-| FLASH | 0x1C000 | 0x5AFF0 | Application code + Lua script |
-| LUA_META | 0x76FF0 | 0x10 | Lua metadata block |
-| BOOTLOADER | 0x77000 | 0x7000 | Bootloader |
-| SETTINGS | 0x7E000 | 0x2000 | Bootloader settings |
-| UICR | 0x10001014 | 0x8 | User Info Config Registers |
+We patch these ld scripts in our build to add a LUA_META block at
+`0x7FFF0`, i.e. the last `4 * i32 = 16` bytes of the flash.
 
 ### Lua Metadata Block
 
-Located at **0x76FF0**, 16 bytes, 4 little-endian 32-bit words:
+Located immediately after the `.data` LMA in FLASH, 20 bytes (5 little-endian 32-bit words):
 
 | Offset | Field | Description |
 |--------|-------|-------------|
@@ -73,9 +69,16 @@ Located at **0x76FF0**, 16 bytes, 4 little-endian 32-bit words:
 | 0x04 | Start | Physical address of the Lua script in FLASH |
 | 0x08 | End | Physical address of the end of the Lua script |
 | 0x0C | Size | Size of the Lua script in bytes |
+| 0x10 | Space | Total FLASH space available for the script (from Start to end of FLASH region) |
 
 **Invariant**: `Size == End - Start`. The `embed` command maintains
 this invariant and `extract` reports a warning when it's broken.
+
+The `.lua_meta` block and `.lua_script` section are placed as the last
+pieces in FLASH, so that all remaining space is available for embedding
+larger Lua scripts later. The `hextract` tool auto-detects the metadata
+location by searching for the `LUA1` magic value at 4-byte aligned
+offsets, so it works with any linker layout without hardcoded addresses.
 
 ## Architecture
 
@@ -123,7 +126,7 @@ lua hextract <command> [args]
 
 Output:
 - Data regions with physical address boundaries and sizes
-- LUA metadata block analysis with sanity checks
+- LUA metadata block analysis with sanity checks (auto-detected location)
 - Script preview (ASCII-printable characters)
 - Summary statistics (record counts, data bytes, address range, gaps)
 - Checksum validation summary
@@ -146,40 +149,33 @@ Output:
 ### Example
 
 ```
-$ lua hextract structure MICROBIT.hex
-
+$ ./utils/hextract structure MICROBIT.hex
 === DATA REGIONS ===
-  Region 1: 0x00000000 - 0x00000AFF  (2.8 KB)
-  Region 2: 0x00001000 - 0x0001B3FF  (105.0 KB)
-  Region 3: 0x0001C000 - 0x00052EF5  (219.7 KB)
-  Region 4: 0x00076FF0 - 0x0007D3EB  (25.0 KB)
-  Region 5: 0x0007E000 - 0x0007F322  (4.8 KB)
-  Region 6: 0x10001014 - 0x1000101B  (8 B)
+  Region 1: 0x00000000 - 0x00033A76  (206.6 KB)
+  Region 2: 0x0007FFF0 - 0x0007FFFF  (16 B)
+  Region 3: 0x10001014 - 0x1000101B  (8 B)
 
-=== LUA METADATA (0x00076FF0) ===
+=== LUA METADATA (0x0007FFF0) ===
   Magic: 0x4C554131 ("LUA1")
-  Start: 0x00052EB4 (339636)
-  End:   0x00052EF6 (339702)
-  Size:  0x00000042 (66)
+  Start: 0x00032BD8 (207832)
+  End:   0x00033A77 (211575)
+  Size:  0x00000E9F (3743)
 
   Sanity checks:
     Magic: OK
-    Start < End: OK (difference = 66 bytes)
-    Size == End - Start: OK (66 bytes)
+    Start < End: OK (difference = 3743 bytes)
+    Size == End - Start: OK (3743 bytes)
 
   Script preview:
-    scroll('Lua alive')
-    while true do
-      sleep(5000)
-      scroll('x')
-    end
+    local uBit = microbit
+    [...]
 
 === SUMMARY ===
-  Total records: 22876
-  Total data bytes: 365773 (357.2 KB)
+  Total records: 13235
+  Total data bytes: 211599 (206.6 KB)
   Address range: 0x00000000 - 0x1000101B
-  Gaps: 5 (total 255.7 MB)
-  Checksums: 22876/22876 valid
+  Gaps: 2 (total 255.8 MB)
+  Checksums: 13235/13235 valid
 ```
 
 ## Tests
