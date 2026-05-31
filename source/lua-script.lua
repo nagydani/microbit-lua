@@ -32,7 +32,7 @@ io = {
   write = write
 }
 
-local unpack = table.unpack
+local unpack = unpack or table.unpack
 
 local function is_identifier(str)
   return type(str) == "string"
