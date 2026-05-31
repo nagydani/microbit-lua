@@ -141,14 +141,65 @@ function print(...)
   print_values(tostring, ...)  
 end
 
+local to_string = tostring
+
+local PRECISION = 1e-6
+
+local function fraction(o, i, f)
+  local p = PRECISION
+  while f >= p do
+    i, f = math.modf(10 * f)
+    table.insert(o, string.format("%d", i))
+    p = 10 * p
+  end
+end
+
+local function number2str(n)
+  local i, f = math.modf(n)
+  local o = {
+    string.format("%d", i)
+  }
+  if f >= PRECISION then
+    table.insert(o, ".")
+    fraction(o, i, f)
+  end
+  return table.concat(o)
+end
+
+function tostring(o)
+  if type(o) ~= "number" then
+    return to_string(o)
+  end
+  return number2str(o)
+end
+
 local getChar = uBit.serial.getChar
+
+local keys = { }
+
+function keys.__index(t, k)
+  return function(out)
+    table.insert(out, k)
+    write(k)
+  end
+end
+
+setmetatable(keys, keys)
+
+keys["\b"] = function(out)
+  if #out > 0 then
+    table.remove(out)
+    write("\b \b")
+  else
+    write("\a")
+  end
+end
 
 local function readLine()
   local out = { }
   local b = getChar()
   while b ~= "\r" do
-    table.insert(out, b)
-    write(b)
+    keys[b](out)
     b = getChar()
   end
   write("\n")
