@@ -141,14 +141,15 @@ function print(...)
   print_values(tostring, ...)  
 end
 
-local getByte = uBit.serial.getByte
+local getChar = uBit.serial.getChar
 
 local function readLine()
   local out = { }
-  local b = getByte()
-  while b ~= "\n" do
+  local b = getChar()
+  while b ~= "\r" do
     table.insert(out, b)
     write(b)
+    b = getChar()
   end
   write("\n")
   return table.concat(out)

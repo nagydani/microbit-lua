@@ -527,6 +527,20 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
                     }							\
                     return 1;						\
                   })							\
+    X(getChar,    { char r = (char)uBit.serial.getChar(SYNC_SLEEP);	\
+                    lua_pushlstring(L, &r, 1);				\
+                    return 1;						\
+                  })							\
+    X(getCharAsync, {							\
+                    int r = uBit.serial.getChar(ASYNC);			\
+                    if(r != DEVICE_NO_DATA) {				\
+                      char c = (char)r;					\
+                      lua_pushlstring(L, &c, 1);			\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
     X(read,       { int size = luaL_checkint(L, 1);			\
                     lua_pushManagedString(L,				\
                       uBit.serial.read(size, SYNC_SLEEP));		\
