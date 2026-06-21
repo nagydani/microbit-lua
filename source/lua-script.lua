@@ -210,25 +210,27 @@ local buffer = ""
 
 print("micro:bit\nLua 5.1 REPL")
 
+local function execute(chunk)
+  local results = { pcall(chunk) }
+  if results[1] then
+    if #results > 1 then
+      print_values(serialize, unpack(results, 2))
+    end
+  else
+    print("Runtime error: " .. tostring(results[2]))
+  end
+end
+
 while true do
   write(buffer == "" and "> " or ">> ")
   local line = readLine()
   buffer = buffer .. line .. "\n"
   local chunk, err, incomplete = compile(buffer)
-  if incomplete then
-    -- Continue collecting lines
-  elseif not chunk then
-    print("Compile error: " .. tostring(err))
-    buffer = ""
-  else
-    local results = { pcall(chunk) }
-    local ok = results[1]
-    if ok then
-      if #results > 1 then
-        print_values(serialize, unpack(results, 2))
-      end
+  if not incomplete then
+    if chunk then
+      execute(chunk)
     else
-      print("Runtime error: " .. tostring(results[2]))
+      print("Compile error: " .. tostring(err))
     end
     buffer = ""
   end

@@ -6,10 +6,11 @@ extern "C" {
 }
 
 #include "MicroBit.h"
+#include "I2C.h"
 
 extern MicroBit uBit;
 
-
+I2C i2c = I2C(uBit.io.pin[I2C_SDA0], uBit.io.pin[I2C_SCL0]);
 
 #define LUA_MICROBIT_FUNCTIONS						\
     X(reset,      { uBit.reset();					\
@@ -82,7 +83,7 @@ Image luaL_checkimage(lua_State *L, int narg) {
       value = (uint8_t)lua_tointeger(L, -1);
       lua_pop(L, 1);
       if(r.setPixelValue(x, y, value) != DEVICE_OK) {
-        lua_error(L);
+        luaL_error(L, "image error");
       }
     }
   }
@@ -647,6 +648,31 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
 
 #define LUA_SERIAL_COUNT 25
 
+#define LUA_I2C_FUNCTIONS						\
+    X(read,       { int address = luaL_checkint(L, 1);			\
+                    int length = luaL_checkint(L, 2);			\
+                    char data[length];					\
+                    if(i2c.read(address, data, length) == MICROBIT_OK){	\
+                      lua_pushlstring(L, data, length);			\
+                      return 1;						\
+                    } else {						\
+                      return luaL_error(L, "i2c read error");		\
+                    }							\
+                  })							\
+    X(write,      { int address = luaL_checkint(L, 1);			\
+                    size_t length;					\
+                    char *data =					\
+                      (char *)luaL_checklstring(L, 2, &length);		\
+                    if(i2c.write(address, data, length)			\
+                      == MICROBIT_OK){					\
+                      return 0;						\
+                    } else {						\
+                      return luaL_error(L, "i2c write error");		\
+                    }							\
+                  })
+
+#define LUA_I2C_COUNT 2
+
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
 LUA_DISPLAY_FUNCTIONS
@@ -654,6 +680,10 @@ LUA_ACCELEROMETER_FUNCTIONS
 LUA_AUDIO_FUNCTIONS
 LUA_IO_FUNCTIONS
 LUA_SERIAL_FUNCTIONS
+#undef X
+
+#define X(name, body) static int l_i2c_##name(lua_State *L) body
+LUA_I2C_FUNCTIONS
 #undef X
 
 #define X(name, body) {#name, l_##name},
@@ -683,6 +713,13 @@ static const luaL_Reg l_serial[] = {
 };
 #undef X
 
+#define X(name, body) {#name, l_i2c_##name},
+static const luaL_Reg l_i2c[] = {
+    LUA_I2C_FUNCTIONS
+    {NULL, NULL}
+};
+#undef X
+
 void register_lua_api(lua_State *L) {
   luaL_register(L, "microbit", l_microbit);
   lua_createtable(L, 0, LUA_DISPLAY_COUNT);
@@ -700,4 +737,8 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_SERIAL_COUNT);
   luaL_register(L, NULL, l_serial);
   lua_setfield(L, -2, "serial");
+  lua_createtable(L, 0, LUA_I2C_COUNT);
+  luaL_register(L, NULL, l_i2c);
+  lua_setfield(L, -2, "i2c");
 }
+
