@@ -12,9 +12,7 @@ extern MicroBit uBit;
 
 // Bind the Lua i2c API to CODAL's pre-wired EXTERNAL edge-connector bus
 // (MICROBIT_PIN_EXT_SDA=P1_00 / MICROBIT_PIN_EXT_SCL=P0_26), where the TPBot
-// lives. The previous line constructed a private I2C on I2C_SDA0/I2C_SCL0
-// (= P0_26/P0_27), which is NOT the edge connector, so writes were clocked on
-// the wrong pins: the robot never saw them (no NAK, no effect).
+// lives.
 I2C &i2c = uBit.i2c;
 
 #define LUA_MICROBIT_FUNCTIONS						\
