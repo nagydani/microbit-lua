@@ -3,6 +3,64 @@
 https://github.com/nagydani/microbit-lua/
 
 * BLE #bluetooth
+** grammar
+ATT = Attribute Protocol, the wire protocol for accessing attributes.
+ - Read, Write, Notify, Indicate
+ - "Send this payload to characteristic handle 0x0018."
+
+GATT = Generic Attribute Profile, a schema: the data model and conventions built on top of ATT.
+ - Services, Characteristics, Descriptors
+ - "Characteristic 0x0018 is the TX endpoint of my stream."
+** reliability
+*** Link Layer: Reliable
+- the controller retransmits automatically,
+- it continues until the connection is lost or supervision timeout expires.
+*** ATT/GATT: Reliable
+The BLE stack guarantees delivery to the ATT layer.
+When write() returns successfully, the remote GATT server has accepted the write.
+
+So if the connection stays alive, the notification will either:
+
+ - arrive, or
+ - the connection will fail.
+
+It won't silently disappear because of RF interference.
+*** app layer
+BLE cannot guarantee:
+
+ - the application had room in its queue,
+ - the application processed it,
+ - the application didn't crash immediately afterward.
+*** #flow control
+When you call e.g. sd_ble_gatts_hvx(...), one of two things happens:
+
+ - the stack accepts the notification into its transmit queue;
+ - or it immediately returns NRF_ERROR_RESOURCES because the queue is full.
+
+The application must then:
+
+- stop sending,
+- wait for a "TX complete" event
+  - (? BLE_GATTS_EVT_HVN_TX_COMPLETE, meaning: space freed up for more messages)
+- resume.
+
+
+The concept is standardized, but the API isn't.
+
+Every BLE stack has an equivalent:
+
+Nordic SoftDevice: BLE_GATTS_EVT_HVN_TX_COMPLETE
+Zephyr: notification completion callbacks or buffer availability
+NimBLE: transmit-complete callbacks
+BlueZ: asynchronous completion of GATT operations
+
+The names differ, but the mechanism is the same: the local stack tells your application when its transmit resources have been freed.
+** #MTU: the ATT #MTU is the hard limit
+there are two different MTUs in play:
+
+ - Link Layer PDU size — the maximum radio packet size: fragmentation is automatic.
+ - ATT MTU — the maximum size of a single GATT operation: hard limit
+** experiment to connect to python
 guix shell python python-bleak
 
 https://github.com/lancaster-university/microbit-v2-samples/issues/109
@@ -17,7 +75,7 @@ https://github.com/lancaster-university/microbit-v2-samples/issues/109
         "MICROBIT_BLE_PARTIAL_FLASHING" : 0,
         "MICROBIT_BLE_OPEN": 1
     },
-** python side for testing the echo service
+*** python side for testing the echo service
 #!/usr/bin/env python3
 
 import asyncio
