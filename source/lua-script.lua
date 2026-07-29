@@ -199,60 +199,77 @@ local function execute(chunk)
   end
 end
 
-function on_event(source, value, timestamp)
-  if source == microbit.DEVICE_ID_SERIAL and value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
-    local c = getChar()
-    while c do
-      if c == "\r" then
-        buffer = buffer .. "\n"
-        write("\r\n")
-        local chunk, err, incomplete = compile(buffer)
-        if not incomplete then
-          if chunk then
-            execute(chunk)
-          else
-            print("Compile error: " .. tostring(err))
-          end
-          buffer = ""
-        end
-        prompt()
-      elseif c == "\b" or c == "\x7f" then
-        if #buffer > 0 then
-          buffer = buffer:sub(1, -2)
-          write("\b \b")
-        end
-      else
-        buffer = buffer .. c
-        write(c)
-      end
-      c = getChar()
-    end
-    uBit.serial.eventAfterAsync(1)
+local handler = { }
+
+handler[microbit.DEVICE_ID_SERIAL] = function(value)
+  if value ~= microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
     return
   end
-
-  local btn
-  if source == microbit.DEVICE_ID_BUTTON_A then
-    btn = "A"
-  elseif source == microbit.DEVICE_ID_BUTTON_B then
-    btn = "B"
-  elseif source == microbit.DEVICE_ID_BUTTON_AB then
-    btn = "AB"
-  end
-  if btn then
-    if value == microbit.DEVICE_BUTTON_EVT_CLICK then
-      uBit.display.scrollAsync(btn)
-    elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
-      uBit.display.scrollAsync(btn .. "!")
+  local c = getChar()
+  while c do
+    if c == "\r" then
+      buffer = buffer .. "\n"
+      write("\r\n")
+      local chunk, err, incomplete = compile(buffer)
+      if not incomplete then
+        if chunk then
+          execute(chunk)
+        else
+          print("Compile error: " .. tostring(err))
+        end
+        buffer = ""
+      end
+      prompt()
+    elseif c == "\b" or c == "\x7f" then
+      if #buffer > 0 then
+        buffer = buffer:sub(1, -2)
+        write("\b \b")
+      end
+    else
+      buffer = buffer .. c
+      write(c)
     end
+    c = getChar()
+  end
+  uBit.serial.eventAfterAsync(1)
+  return
+end
+
+button = {
+  [microbit.DEVICE_BUTTON_EVT_CLICK] = function(btn)
+     uBit.display.scrollAsync(btn)
+  end,
+  [microbit.DEVICE_BUTTON_EVT_LONG_CLICK] = function(btn)
+     uBit.display.scrollAsync(btn .. "!")
+  end
+}
+
+handler[microbit.DEVICE_ID_BUTTON_A] = function(value)
+  button[value]("A")
+end
+
+handler[microbit.DEVICE_ID_BUTTON_B] = function(value)
+  button[value]("B")
+end
+
+handler[microbit.DEVICE_ID_BUTTON_AB] = function(value)
+  button[value]("AB")
+end
+
+function on_event(source, value, timestamp)
+  local handle = handler[source]
+  if handle then
+    handle(value, timestamp)
   end
 end
 
--- Script-level setup (runs once before the main fiber is released):
--- show prompt, initialise the serial RX buffer, and arm the first per-char
--- head-match event.  After this returns, release_fiber() in main() hands
--- control to the scheduler; on_event() handles all events from the bus.
+-- Script-level setup (runs once before the main fiber
+-- is released):
+-- show prompt, initialise the serial RX buffer, and arm
+-- the first per-char head-match event.
+-- After this returns, release_fiber() in main() hands
+-- control to the scheduler; on_event() handles all events 
+-- from the bus.
 prompt()
 uBit.serial.getCharAsync()
 uBit.serial.eventAfterAsync(1)
-
