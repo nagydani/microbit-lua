@@ -1,9 +1,9 @@
---- ld/nrf52833-softdevice.ld	2026-05-14 19:48:02.067603366 +0000
-+++ ld/nrf52833-softdevice-patched.ld	2026-05-30 15:29:47.870589492 +0000
-@@ -169,6 +169,41 @@
-         __data_end__ = .;
+--- ld/nrf52833-softdevice.ld	2026-07-29 06:25:18.264168432 +0000
++++ ld/nrf52833-softdevice-patched.ld	2026-07-29 06:40:29.966976686 +0000
+@@ -181,6 +181,41 @@
+         . = ALIGN(4);
+         __bss_end__ = .;
      } > RAM
-     __edata = .;
 +
 +    /*
 +       The .data section's LMA (load address) is in FLASH at __etext.
@@ -39,6 +39,6 @@
 +        __lua_script_end = .;
 +    } > FLASH
 +
-     .bss :
+     .heap (NOLOAD):
      {
-         . = ALIGN(4);
+         __end__ = .;
