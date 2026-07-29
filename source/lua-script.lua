@@ -201,38 +201,49 @@ end
 
 local handler = { }
 
-handler[microbit.DEVICE_ID_SERIAL] = function(value)
-  if value ~= microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
-    return
-  end
-  local c = getChar()
-  while c do
-    if c == "\r" then
-      buffer = buffer .. "\n"
-      write("\r\n")
-      local chunk, err, incomplete = compile(buffer)
-      if not incomplete then
-        if chunk then
-          execute(chunk)
-        else
-          print("Compile error: " .. tostring(err))
-        end
-        buffer = ""
-      end
-      prompt()
-    elseif c == "\b" or c == "\x7f" then
-      if #buffer > 0 then
-        buffer = buffer:sub(1, -2)
-        write("\b \b")
-      end
+local function enter()
+  buffer = buffer .. "\n"
+  write("\r\n")
+  local chunk, err, incomplete = compile(buffer)
+  if not incomplete then
+    if chunk then
+      execute(chunk)
     else
-      buffer = buffer .. c
-      write(c)
+      print("Compile error: " .. tostring(err))
     end
-    c = getChar()
+    buffer = ""
   end
-  uBit.serial.eventAfterAsync(1)
-  return
+  prompt()
+end
+
+local function backspace()
+  if #buffer > 0 then
+    buffer = buffer:sub(1, -2)
+    write("\b \b")
+  end
+end
+
+local keypress = {
+  ["\r"] = enter,
+  ["\b"] = backspace,
+  ["\x7f"] = backspace
+}
+
+handler[microbit.DEVICE_ID_SERIAL] = function(value)
+  if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
+    local c = getChar()
+    while c do
+      local input = keypress[c]
+      if input then
+        input()
+      else
+        buffer = buffer .. c
+        write(c)
+      end
+      c = getChar()
+    end
+    uBit.serial.eventAfterAsync(1)
+  end
 end
 
 button = {
