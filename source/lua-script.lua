@@ -247,25 +247,24 @@ handler[microbit.DEVICE_ID_SERIAL] = function(value)
   end
 end
 
-button = {
-  [microbit.DEVICE_BUTTON_EVT_CLICK] = function(btn)
+local function button(value, btn)
+  if value == microbit.DEVICE_BUTTON_EVT_CLICK then
      uBit.display.scrollAsync(btn)
-  end,
-  [microbit.DEVICE_BUTTON_EVT_LONG_CLICK] = function(btn)
+  elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
      uBit.display.scrollAsync(btn .. "!")
   end
-}
+end
 
 handler[microbit.DEVICE_ID_BUTTON_A] = function(value)
-  button[value]("A")
+  button(value, "A")
 end
 
 handler[microbit.DEVICE_ID_BUTTON_B] = function(value)
-  button[value]("B")
+  button(value, "B")
 end
 
 handler[microbit.DEVICE_ID_BUTTON_AB] = function(value)
-  button[value]("AB")
+  button(value, "AB")
 end
 
 function on_event(source, value, timestamp)
