@@ -131,7 +131,8 @@ local function compile(code)
   if chunk or incomp then
     return chunk, err, incomp
   end
-  local e_chunk, e_err, e_incomp = compile_try("return " .. code)
+  local e_chunk, e_err, e_incomp =
+    compile_try("return " .. code)
   if e_chunk or e_incomp then
     return e_chunk, e_err, e_incomp
   end
