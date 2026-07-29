@@ -200,7 +200,7 @@ local function execute(chunk)
 end
 
 function on_event(source, value, timestamp)
-  if source == 12 and value == 2 then
+  if source == microbit.DEVICE_ID_SERIAL and value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
     local c = getChar()
     while c do
       if c == "\r" then
@@ -232,17 +232,17 @@ function on_event(source, value, timestamp)
   end
 
   local btn
-  if source == 1 then
+  if source == microbit.DEVICE_ID_BUTTON_A then
     btn = "A"
-  elseif source == 2 then
+  elseif source == microbit.DEVICE_ID_BUTTON_B then
     btn = "B"
-  elseif source == 3 then
+  elseif source == microbit.DEVICE_ID_BUTTON_AB then
     btn = "AB"
   end
   if btn then
-    if value == 3 then
+    if value == microbit.DEVICE_BUTTON_EVT_CLICK then
       uBit.display.scrollAsync(btn)
-    elseif value == 4 then
+    elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
       uBit.display.scrollAsync(btn .. "!")
     end
   end

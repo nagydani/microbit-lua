@@ -678,6 +678,15 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
 
 #define LUA_I2C_COUNT 2
 
+#define LUA_CODAL_CONSTANTS \
+    X(DEVICE_ID_BUTTON_A) \
+    X(DEVICE_ID_BUTTON_B) \
+    X(DEVICE_ID_BUTTON_AB) \
+    X(DEVICE_ID_SERIAL) \
+    X(DEVICE_BUTTON_EVT_CLICK) \
+    X(DEVICE_BUTTON_EVT_LONG_CLICK) \
+    X(CODAL_SERIAL_EVT_HEAD_MATCH)
+
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
 LUA_DISPLAY_FUNCTIONS
@@ -745,6 +754,16 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_I2C_COUNT);
   luaL_register(L, NULL, l_i2c);
   lua_setfield(L, -2, "i2c");
+
+  // CODAL event constants — use the exact C macro names so that reading
+  // CODAL source/docs is sufficient to write Lua code (no extra translation).
+  // Capture the absolute stack index of the microbit table because leftover
+  // entries from luaopen_* (base, table, string, math) sit below it — using
+  // a relative index like -2 would target the wrong table.
+  int microbit_idx = lua_gettop(L);
+#define X(n) lua_pushinteger(L, n); lua_setfield(L, microbit_idx, #n);
+  LUA_CODAL_CONSTANTS
+#undef X
 }
 
 // Called by the MessageBus for every event matching DEVICE_ID_ANY /
