@@ -7,9 +7,6 @@ extern "C" {
 #include "lualib.h"
 }
 
-// only defined in Lua version >=5.2
-#define LUA_OK 0
-
 // metadata descriptor of the lua-script block in the firmware
 struct LuaMeta {
     uint32_t magic;

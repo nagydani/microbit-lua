@@ -5,6 +5,12 @@ extern "C" {
 #include "lua.h"
 }
 
+// Lua 5.1 does not define LUA_OK; provide it so callers can write
+// `== LUA_OK` instead of remembering that 0 is success.
+#ifndef LUA_OK
+#define LUA_OK 0
+#endif
+
 void register_lua_api(lua_State *L);
 
 #endif
