@@ -66,6 +66,9 @@ int main() {
     luaopen_math(L);
 
     register_lua_api(L);
+    // Register the MessageBus listener BEFORE running the script so that
+    // events queued during / after script execution are never missed.
+    register_lua_event_listener(L);
 
     if (luaL_loadbuffer(L, (const char*)__lua_meta.start,
                         __lua_meta.size, "embedded") == LUA_OK)
@@ -88,9 +91,9 @@ int main() {
         }
     }
 
-    lua_close(L);
-
-    uBit.display.scroll("Lua exited");
-
+    // Don't lua_close(L) — the Lua state must stay alive for the event
+    // listener callback (on_codal_event) to call lua_pcall later.
+    // The event handler fibers are children of the idle fiber, so the
+    // scheduler keeps them alive without consuming a user fiber slot.
     release_fiber();
 }

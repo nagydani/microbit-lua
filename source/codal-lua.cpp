@@ -5,7 +5,9 @@ extern "C" {
 #include "lualib.h"
 }
 
+#include "codal-lua.h"
 #include "MicroBit.h"
+#include "Event.h"
 #include "I2C.h"
 
 extern MicroBit uBit;
@@ -743,5 +745,42 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_I2C_COUNT);
   luaL_register(L, NULL, l_i2c);
   lua_setfield(L, -2, "i2c");
+}
+
+// Called by the MessageBus for every event matching DEVICE_ID_ANY /
+// DEVICE_EVT_ANY.  Registered with MESSAGE_BUS_LISTENER_IMMEDIATE so that
+// it runs synchronously inside Event() — the deferred (non-IMMEDIATE) queue
+// is never processed because the codal::idle() → MessageBus::idle() chain
+// does not fire after the initial startup burst on this board.
+//
+// Every event is forwarded to the Lua on_event() handler.  No filtering
+// at the C level — the Lua side decides what to do with each event,
+// acting as a generic event framework for user code.
+static void on_codal_event(codal::Event e, void *arg) {
+  lua_State *L = (lua_State *)arg;
+  lua_getglobal(L, "on_event");
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_pushinteger(L, e.source);
+  lua_pushinteger(L, e.value);
+  lua_pushinteger(L, e.timestamp);
+  if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+    const char *err = lua_tostring(L, -1);
+    if (err) {
+      uBit.display.scroll(err);
+    }
+    lua_pop(L, 1);
+  }
+}
+
+void register_lua_event_listener(lua_State *L) {
+  // IMMEDIATE: runs in Event() context, bypasses the deferred event queue.
+  // The Lua on_event() handler never blocks (uses ASYNC I/O), so no fiber
+  // hangs inside the FOB context that invoke() creates.
+  uBit.messageBus.listen(DEVICE_ID_ANY, DEVICE_EVT_ANY,
+                         on_codal_event, (void *)L,
+                         MESSAGE_BUS_LISTENER_IMMEDIATE);
 }
 

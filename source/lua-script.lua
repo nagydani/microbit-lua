@@ -18,6 +18,7 @@ uBit.display.animate(heart, 1000, 5)
 uBit.display.scrollAsync(uBit.friendlyName())
 
 local send = uBit.serial.send
+local sendAsync = uBit.serial.sendAsync
 
 local function write(s)
   for c in string.gmatch(s, ".") do
@@ -173,66 +174,85 @@ function tostring(o)
   return number2str(o)
 end
 
-local getChar = uBit.serial.getChar
-
-local keys = { }
-
-function keys.__index(t, k)
-  return function(out)
-    table.insert(out, k)
-    write(k)
-  end
-end
-
-setmetatable(keys, keys)
-
-keys["\b"] = function(out)
-  if #out > 0 then
-    table.remove(out)
-    write("\b \b")
-  else
-    write("\a")
-  end
-end
-
-local function readLine()
-  local out = { }
-  local b = getChar()
-  while b ~= "\r" do
-    keys[b](out)
-    b = getChar()
-  end
-  write("\n")
-  return table.concat(out)
-end
+local getChar = uBit.serial.getCharAsync
 
 local buffer = ""
 
 print("micro:bit\nLua 5.1 REPL")
 
+local function prompt()
+  write(buffer == "" and "> " or ">> ")
+end
+
 local function execute(chunk)
   local results = { pcall(chunk) }
   if results[1] then
     if #results > 1 then
-      print_values(serialize, unpack(results, 2))
+      local out = { }
+      for i = 2, #results do
+        table.insert(out, serialize(results[i]))
+      end
+      print("=> " .. table.concat(out, "\t"))
     end
   else
     print("Runtime error: " .. tostring(results[2]))
   end
 end
 
-while true do
-  write(buffer == "" and "> " or ">> ")
-  local line = readLine()
-  buffer = buffer .. line .. "\n"
-  local chunk, err, incomplete = compile(buffer)
-  if not incomplete then
-    if chunk then
-      execute(chunk)
-    else
-      print("Compile error: " .. tostring(err))
+function on_event(source, value, timestamp)
+  if source == 12 and value == 2 then
+    local c = getChar()
+    while c do
+      if c == "\r" then
+        buffer = buffer .. "\n"
+        write("\r\n")
+        local chunk, err, incomplete = compile(buffer)
+        if not incomplete then
+          if chunk then
+            execute(chunk)
+          else
+            print("Compile error: " .. tostring(err))
+          end
+          buffer = ""
+        end
+        prompt()
+      elseif c == "\b" or c == "\x7f" then
+        if #buffer > 0 then
+          buffer = buffer:sub(1, -2)
+          write("\b \b")
+        end
+      else
+        buffer = buffer .. c
+        write(c)
+      end
+      c = getChar()
     end
-    buffer = ""
+    uBit.serial.eventAfterAsync(1)
+    return
+  end
+
+  local btn
+  if source == 1 then
+    btn = "A"
+  elseif source == 2 then
+    btn = "B"
+  elseif source == 3 then
+    btn = "AB"
+  end
+  if btn then
+    if value == 3 then
+      uBit.display.scrollAsync(btn)
+    elseif value == 4 then
+      uBit.display.scrollAsync(btn .. "!")
+    end
   end
 end
+
+-- Script-level setup (runs once before the main fiber is released):
+-- show prompt, initialise the serial RX buffer, and arm the first per-char
+-- head-match event.  After this returns, release_fiber() in main() hands
+-- control to the scheduler; on_event() handles all events from the bus.
+prompt()
+uBit.serial.getCharAsync()
+uBit.serial.eventAfterAsync(1)
 

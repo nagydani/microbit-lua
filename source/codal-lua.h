@@ -12,5 +12,6 @@ extern "C" {
 #endif
 
 void register_lua_api(lua_State *L);
+void register_lua_event_listener(lua_State *L);
 
 #endif
