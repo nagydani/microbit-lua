@@ -766,40 +766,49 @@ void register_lua_api(lua_State *L) {
 #undef X
 }
 
-// Called by the MessageBus for every event matching DEVICE_ID_ANY /
-// DEVICE_EVT_ANY.  Registered with MESSAGE_BUS_LISTENER_IMMEDIATE so that
-// it runs synchronously inside Event() — the deferred (non-IMMEDIATE) queue
-// is never processed because the codal::idle() → MessageBus::idle() chain
-// does not fire after the initial startup burst on this board.
-//
-// Every event is forwarded to the Lua on_event() handler.  No filtering
-// at the C level — the Lua side decides what to do with each event,
-// acting as a generic event framework for user code.
-static void on_codal_event(codal::Event e, void *arg) {
-  lua_State *L = (lua_State *)arg;
-  lua_getglobal(L, "on_event");
-  if (!lua_isfunction(L, -1)) {
-    lua_pop(L, 1);
+static lua_State *lua_state;
+
+// Runs in a dedicated fiber (spawned by on_codal_event).  Has a full
+// fiber stack so lua_pcall won't overflow the idle or interrupt stacks.
+static void lua_event_handler_fiber(void *arg) {
+  codal::Event e = *(codal::Event *)arg;
+  delete (codal::Event *)arg;
+
+  lua_getglobal(lua_state, "on_event");
+  if (!lua_isfunction(lua_state, -1)) {
+    lua_pop(lua_state, 1);
     return;
   }
-  lua_pushinteger(L, e.source);
-  lua_pushinteger(L, e.value);
-  lua_pushinteger(L, e.timestamp);
-  if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
-    const char *err = lua_tostring(L, -1);
+  lua_pushinteger(lua_state, e.source);
+  lua_pushinteger(lua_state, e.value);
+  lua_pushinteger(lua_state, e.timestamp);
+  if (lua_pcall(lua_state, 3, 0, 0) != LUA_OK) {
+    const char *err = lua_tostring(lua_state, -1);
     if (err) {
       uBit.display.scroll(err);
     }
-    lua_pop(L, 1);
+    lua_pop(lua_state, 1);
   }
 }
 
+// Called by the MessageBus for every event matching DEVICE_ID_ANY /
+// DEVICE_EVT_ANY.  Registered with MESSAGE_BUS_LISTENER_IMMEDIATE so
+// that all listeners are served in the urgent pass (complete == 1) and
+// no event is ever enqueued globally — the idle tick is undisturbed.
+//
+// The callback is intentionally lightweight: it copies the event to the
+// heap and spawns a fiber that runs the actual Lua handler on a proper
+// stack.
+static void on_codal_event(codal::Event e, void *arg) {
+  (void)arg;
+  codal::Event *copy = new codal::Event(e);
+  create_fiber(lua_event_handler_fiber, copy);
+}
+
 void register_lua_event_listener(lua_State *L) {
-  // IMMEDIATE: runs in Event() context, bypasses the deferred event queue.
-  // The Lua on_event() handler never blocks (uses ASYNC I/O), so no fiber
-  // hangs inside the FOB context that invoke() creates.
+  lua_state = L;
   uBit.messageBus.listen(DEVICE_ID_ANY, DEVICE_EVT_ANY,
-                         on_codal_event, (void *)L,
+                         on_codal_event, NULL,
                          MESSAGE_BUS_LISTENER_IMMEDIATE);
 }
 

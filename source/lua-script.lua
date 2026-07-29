@@ -249,9 +249,9 @@ end
 
 local function button(value, btn)
   if value == microbit.DEVICE_BUTTON_EVT_CLICK then
-     uBit.display.scrollAsync(btn)
-  elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
-     uBit.display.scrollAsync(btn .. "!")
+      uBit.display.scroll(btn)
+   elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
+      uBit.display.scroll(btn .. "!")
   end
 end
 
