@@ -202,6 +202,8 @@ end
 
 local handler = { }
 
+microbit.handler = handler
+
 local function enter()
   buffer = buffer .. "\n"
   write("\r\n")

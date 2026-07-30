@@ -251,6 +251,14 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     lua_pushinteger(L, r);				\
                     return 1;						\
                   })							\
+    X(configure,  { int r = uBit.accelerometer.configure();		\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(requestUpdate, { int r = uBit.accelerometer.requestUpdate();	\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
     X(getXYZ,     { lua_pushinteger(L, uBit.accelerometer.getX());	\
                     lua_pushinteger(L, uBit.accelerometer.getY());	\
                     lua_pushinteger(L, uBit.accelerometer.getZ());	\
@@ -683,8 +691,26 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(DEVICE_ID_BUTTON_B) \
     X(DEVICE_ID_BUTTON_AB) \
     X(DEVICE_ID_SERIAL) \
+    X(DEVICE_ID_ACCELEROMETER) \
+    X(DEVICE_ID_GESTURE) \
+    X(ACCELEROMETER_EVT_DATA_UPDATE) \
+    X(ACCELEROMETER_EVT_TILT_UP) \
+    X(ACCELEROMETER_EVT_TILT_DOWN) \
+    X(ACCELEROMETER_EVT_TILT_LEFT) \
+    X(ACCELEROMETER_EVT_TILT_RIGHT) \
+    X(ACCELEROMETER_EVT_FACE_UP) \
+    X(ACCELEROMETER_EVT_FACE_DOWN) \
+    X(ACCELEROMETER_EVT_FREEFALL) \
+    X(ACCELEROMETER_EVT_3G) \
+    X(ACCELEROMETER_EVT_6G) \
+    X(ACCELEROMETER_EVT_8G) \
+    X(ACCELEROMETER_EVT_SHAKE) \
+    X(DEVICE_BUTTON_EVT_DOWN) \
+    X(DEVICE_BUTTON_EVT_UP) \
     X(DEVICE_BUTTON_EVT_CLICK) \
     X(DEVICE_BUTTON_EVT_LONG_CLICK) \
+    X(DEVICE_BUTTON_EVT_HOLD) \
+    X(DEVICE_BUTTON_EVT_DOUBLE_CLICK) \
     X(CODAL_SERIAL_EVT_HEAD_MATCH)
 
 #define X(name, body) static int l_##name(lua_State *L) body
