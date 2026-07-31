@@ -686,6 +686,56 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
 
 #define LUA_I2C_COUNT 2
 
+#define LUA_RADIO_FUNCTIONS						\
+    X(setTransmitPower, {						\
+                    int power = luaL_checkint(L, 1);			\
+                    int r = uBit.radio.setTransmitPower(power);		\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(setFrequencyBand, {						\
+                    int band = luaL_checkint(L, 1);			\
+                    int r = uBit.radio.setFrequencyBand(band);		\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(enable,     { int r = uBit.radio.enable();			\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(disable,    { int r = uBit.radio.disable();			\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(setGroup,   {							\
+                    uint8_t group = (uint8_t)luaL_checkint(L, 1);	\
+                    int r = uBit.radio.setGroup(group);			\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })							\
+    X(dataReady,  { int r = uBit.radio.dataReady();			\
+                    lua_pushinteger(L, r);					\
+                    return 1;						\
+                  })							\
+    X(recv,       { PacketBuffer r = uBit.radio.datagram.recv();	\
+                    if(r == PacketBuffer::EmptyPacket) {		\
+                      lua_pushnil(L);					\
+                    } else {						\
+                      lua_pushlstring(L,				\
+                        (const char*)r.getBytes(), r.length());		\
+                    }						 	\
+                    return 1;						\
+                  })							\
+    X(send,       { size_t len;						\
+                    const char *buffer = luaL_checklstring(L, 1, &len);	\
+                    int r = uBit.radio.datagram.send(			\
+                      PacketBuffer((uint8_t*)buffer, len));		\
+                    lua_pushboolean(L, r == MICROBIT_OK);		\
+                    return 1;						\
+                  })
+
+#define LUA_RADIO_COUNT 8
+
 #define LUA_CODAL_CONSTANTS \
     X(MICROBIT_ID_LOGO) \
     X(DEVICE_ID_BUTTON_A) \
@@ -694,6 +744,8 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(DEVICE_ID_SERIAL) \
     X(DEVICE_ID_ACCELEROMETER) \
     X(DEVICE_ID_GESTURE) \
+    X(DEVICE_ID_RADIO) \
+    X(DEVICE_ID_RADIO_DATA_READY) \
     X(ACCELEROMETER_EVT_DATA_UPDATE) \
     X(ACCELEROMETER_EVT_TILT_UP) \
     X(ACCELEROMETER_EVT_TILT_DOWN) \
@@ -712,6 +764,7 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(DEVICE_BUTTON_EVT_LONG_CLICK) \
     X(DEVICE_BUTTON_EVT_HOLD) \
     X(DEVICE_BUTTON_EVT_DOUBLE_CLICK) \
+    X(MICROBIT_RADIO_EVT_DATAGRAM) \
     X(CODAL_SERIAL_EVT_HEAD_MATCH)
 
 #define X(name, body) static int l_##name(lua_State *L) body
@@ -721,6 +774,10 @@ LUA_ACCELEROMETER_FUNCTIONS
 LUA_AUDIO_FUNCTIONS
 LUA_IO_FUNCTIONS
 LUA_SERIAL_FUNCTIONS
+#undef X
+
+#define X(name, body) static int l_radio_##name(lua_State *L) body
+LUA_RADIO_FUNCTIONS
 #undef X
 
 #define X(name, body) static int l_i2c_##name(lua_State *L) body
@@ -754,6 +811,13 @@ static const luaL_Reg l_serial[] = {
 };
 #undef X
 
+#define X(name, body) {#name, l_radio_##name},
+static const luaL_Reg l_radio[] = {
+    LUA_RADIO_FUNCTIONS
+    {NULL, NULL}
+};
+#undef X
+
 #define X(name, body) {#name, l_i2c_##name},
 static const luaL_Reg l_i2c[] = {
     LUA_I2C_FUNCTIONS
@@ -778,6 +842,9 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_SERIAL_COUNT);
   luaL_register(L, NULL, l_serial);
   lua_setfield(L, -2, "serial");
+  lua_createtable(L, 0, LUA_RADIO_COUNT);
+  luaL_register(L, NULL, l_radio);
+  lua_setfield(L, -2, "radio");
   lua_createtable(L, 0, LUA_I2C_COUNT);
   luaL_register(L, NULL, l_i2c);
   lua_setfield(L, -2, "i2c");
@@ -839,4 +906,3 @@ void register_lua_event_listener(lua_State *L) {
                          on_codal_event, NULL,
                          MESSAGE_BUS_LISTENER_IMMEDIATE);
 }
-
