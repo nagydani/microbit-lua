@@ -259,9 +259,10 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     lua_pushboolean(L, r == MICROBIT_OK);		\
                     return 1;						\
                   })							\
-    X(getXYZ,     { lua_pushinteger(L, uBit.accelerometer.getX());	\
-                    lua_pushinteger(L, uBit.accelerometer.getY());	\
-                    lua_pushinteger(L, uBit.accelerometer.getZ());	\
+    X(getSample,  { Sample3D sample = uBit.accelerometer.getSample();	\
+                    lua_pushinteger(L, sample.x);			\
+                    lua_pushinteger(L, sample.y);			\
+                    lua_pushinteger(L, sample.z);			\
                     return 3;						\
                   })							\
     X(getGesture, { uint16_t r = uBit.accelerometer.getGesture();	\
@@ -270,6 +271,87 @@ Image luaL_checkimage(lua_State *L, int narg) {
                   })
 
 #define LUA_ACCELEROMETER_COUNT 6
+
+// see https://rneacy.dev/mbv2/ubit/compass/
+#define LUA_COMPASS_FUNCTIONS						\
+    X(heading,     { int r = uBit.compass.heading();			\
+                     if(r == DEVICE_CALIBRATION_IN_PROGRESS) {		\
+                       lua_pushnil(L);					\
+                     } else {						\
+                       lua_pushinteger(L, r);				\
+                     }							\
+                     return 1;						\
+                   })							\
+    X(getFieldStrength, { int r = uBit.compass.getFieldStrength();	\
+                     lua_pushinteger(L, r);				\
+                     return 1;						\
+                   })							\
+    X(calibrate,   { int r = uBit.compass.calibrate();			\
+                     lua_pushboolean(L, r == MICROBIT_OK);		\
+                     return 1;						\
+                   })							\
+    X(setCalibration, { CompassCalibration cc = CompassCalibration();	\
+                     cc.centre.x = luaL_optint(L, 1, 0);		\
+                     cc.centre.y = luaL_optint(L, 2, 0);		\
+                     cc.centre.z = luaL_optint(L, 3, 0);		\
+                     cc.scale.x = luaL_optint(L, 4, 1024);		\
+                     cc.scale.y = luaL_optint(L, 5, 1024);		\
+                     cc.scale.z = luaL_optint(L, 6, 1024);		\
+                     cc.radius = luaL_optint(L, 7, 0);			\
+                     uBit.compass.setCalibration(cc);			\
+                     return 0;						\
+                   })							\
+    X(getCalibration, { CompassCalibration cc =				\
+                       uBit.compass.getCalibration();			\
+                     lua_pushinteger(L, cc.centre.x);			\
+                     lua_pushinteger(L, cc.centre.y);			\
+                     lua_pushinteger(L, cc.centre.z);			\
+                     lua_pushinteger(L, cc.scale.x);			\
+                     lua_pushinteger(L, cc.scale.y);			\
+                     lua_pushinteger(L, cc.scale.z);			\
+                     lua_pushinteger(L, cc.radius);			\
+                     return 7;						\
+                   })							\
+    X(isCalibrated, { int r = uBit.compass.isCalibrated();		\
+                     lua_pushboolean(L, r);				\
+                     return 1;						\
+                   })							\
+    X(isCalibrating, { int r = uBit.compass.isCalibrating();		\
+                     lua_pushboolean(L, r);				\
+                     return 1;						\
+                   })							\
+    X(clearCalibration, { uBit.compass.clearCalibration();		\
+                     return 0;						\
+                   })							\
+    X(configure,   { int r = uBit.compass.configure();			\
+                     lua_pushboolean(L, r == MICROBIT_OK);		\
+                     return 1;						\
+                   })							\
+    X(setPeriod,   { int period = luaL_checkint(L, 1);			\
+                     int r = uBit.compass.setPeriod(period);		\
+                     lua_pushboolean(L, r == MICROBIT_OK);		\
+                     return 1;						\
+                   })							\
+    X(getPeriod,   { int r = uBit.compass.getPeriod();			\
+                     lua_pushinteger(L, r);				\
+                     return 1;						\
+                   })							\
+    X(requestUpdate, { int r = uBit.compass.requestUpdate();		\
+                     lua_pushboolean(L, r == MICROBIT_OK);		\
+                     return 1;						\
+                   })							\
+    X(update,      { int r = uBit.compass.update();			\
+                     lua_pushboolean(L, r == MICROBIT_OK);		\
+                     return 1;						\
+                   })							\
+    X(getSample,  { Sample3D sample = uBit.compass.getSample();		\
+                    lua_pushinteger(L, sample.x);			\
+                    lua_pushinteger(L, sample.y);			\
+                    lua_pushinteger(L, sample.z);			\
+                    return 3;						\
+                  })
+
+#define LUA_COMPASS_COUNT 14
 
 #define LUA_AUDIO_FUNCTIONS						\
     X(getAudioPin, { lua_pushlightuserdata(L,				\
@@ -743,6 +825,7 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(DEVICE_ID_BUTTON_AB) \
     X(DEVICE_ID_SERIAL) \
     X(DEVICE_ID_ACCELEROMETER) \
+    X(DEVICE_ID_COMPASS) \
     X(DEVICE_ID_GESTURE) \
     X(DEVICE_ID_RADIO) \
     X(DEVICE_ID_RADIO_DATA_READY) \
@@ -758,6 +841,10 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(ACCELEROMETER_EVT_6G) \
     X(ACCELEROMETER_EVT_8G) \
     X(ACCELEROMETER_EVT_SHAKE) \
+    X(COMPASS_EVT_DATA_UPDATE) \
+    X(COMPASS_EVT_CONFIG_NEEDED) \
+    X(COMPASS_EVT_CALIBRATE) \
+    X(COMPASS_EVT_CALIBRATION_NEEDED) \
     X(DEVICE_BUTTON_EVT_DOWN) \
     X(DEVICE_BUTTON_EVT_UP) \
     X(DEVICE_BUTTON_EVT_CLICK) \
@@ -774,6 +861,10 @@ LUA_ACCELEROMETER_FUNCTIONS
 LUA_AUDIO_FUNCTIONS
 LUA_IO_FUNCTIONS
 LUA_SERIAL_FUNCTIONS
+#undef X
+
+#define X(name, body) static int l_compass_##name(lua_State *L) body
+LUA_COMPASS_FUNCTIONS
 #undef X
 
 #define X(name, body) static int l_radio_##name(lua_State *L) body
@@ -811,6 +902,13 @@ static const luaL_Reg l_serial[] = {
 };
 #undef X
 
+#define X(name, body) {#name, l_compass_##name},
+static const luaL_Reg l_compass[] = {
+    LUA_COMPASS_FUNCTIONS
+    {NULL, NULL}
+};
+#undef X
+
 #define X(name, body) {#name, l_radio_##name},
 static const luaL_Reg l_radio[] = {
     LUA_RADIO_FUNCTIONS
@@ -833,6 +931,9 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_ACCELEROMETER_COUNT);
   luaL_register(L, NULL, l_accelerometer);
   lua_setfield(L, -2, "accelerometer");
+  lua_createtable(L,0, LUA_COMPASS_COUNT);
+  luaL_register(L, NULL, l_compass);
+  lua_setfield(L, -2, "compass");
   lua_createtable(L, 0, LUA_AUDIO_COUNT);
   luaL_register(L, NULL, l_audio);
   lua_setfield(L, -2, "audio");
