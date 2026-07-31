@@ -687,6 +687,7 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
 #define LUA_I2C_COUNT 2
 
 #define LUA_CODAL_CONSTANTS \
+    X(MICROBIT_ID_LOGO) \
     X(DEVICE_ID_BUTTON_A) \
     X(DEVICE_ID_BUTTON_B) \
     X(DEVICE_ID_BUTTON_AB) \
