@@ -782,6 +782,7 @@ void register_lua_api(lua_State *L) {
   luaL_register(L, NULL, l_i2c);
   lua_setfield(L, -2, "i2c");
 
+  // TODO: avoid repeated reallocations
   // CODAL event constants — use the exact C macro names so that reading
   // CODAL source/docs is sufficient to write Lua code (no extra translation).
   // Capture the absolute stack index of the microbit table because leftover
