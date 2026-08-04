@@ -988,15 +988,35 @@ static void lua_event_handler_fiber(void *arg) {
 }
 
 // Called by the MessageBus for every event matching DEVICE_ID_ANY /
-// DEVICE_EVT_ANY.  Registered with MESSAGE_BUS_LISTENER_IMMEDIATE so
-// that all listeners are served in the urgent pass (complete == 1) and
-// no event is ever enqueued globally — the idle tick is undisturbed.
+// DEVICE_EVT_ANY.
 //
-// The callback is intentionally lightweight: it copies the event to the
-// heap and spawns a fiber that runs the actual Lua handler on a proper
-// stack.
+// Registered with the IMMEDIATE flags, so events are dispatched straight
+// from the posting context (fiber or IRQ). This is safe now that:
+//  - the periodic housekeeping ticks are filtered out below, so dispatch
+//    only runs for genuine user-relevant events (a few per second), and
+//  - the heap allocations here (`new Event`, `new Fiber`) go through the
+//    BASEPRI allocator critical section, so a heap search can no longer
+//    mask the SoftDevice's priority-0 radio IRQs past their arming
+//    deadline.
+//
+// The DEFAULT/QUEUE_IF_BUSY flags were tried instead (events dispatched
+// via the MessageBus event queue in idle context), but serial head-match
+// events then never reached the Lua handler, so IMMEDIATE is required.
+//
+// We also filter out the scheduler's internal channels: the periodic
+// housekeeping ticks (DEVICE_SCHEDULER_EVT_TICK and
+// DEVICE_COMPONENT_EVT_SYSTEM_TICK, both fired every
+// SCHEDULER_TICK_PERIOD_US = 6ms), and the wait/notify channels
+// (DEVICE_ID_NOTIFY / DEVICE_ID_NOTIFY_ONE, e.g. CODAL_SERIAL_EVT_TX_EMPTY
+// fired from the UARTE IRQ for every transmitted char). These are pure
+// internal noise — no Lua script ever handles them — but every one would
+// otherwise spawn a Lua fiber (two heap allocations plus a lua_pcall).
+// Filtering removes ~99% of the per-tick/per-char fiber traffic.
 static void on_codal_event(codal::Event e, void *arg) {
   (void)arg;
+  if (e.source == DEVICE_ID_SCHEDULER || e.source == DEVICE_ID_COMPONENT ||
+      e.source == DEVICE_ID_NOTIFY || e.source == DEVICE_ID_NOTIFY_ONE)
+    return;
   codal::Event *copy = new codal::Event(e);
   create_fiber(lua_event_handler_fiber, copy);
 }
