@@ -30,20 +30,27 @@ introduce a phase in our build script that applies the
 The simplest and most reliable way to build it is by using the
 included `Dockerfile`:
 
-1) Build the container image: `podman build --platform linux/amd64 -t
-   microbit -f Dockerfile .`
+1) Build the container image:
+   `podman build --platform linux/amd64 -t microbit -f Dockerfile .`
 
-2) Build the firmware (from the project root): `podman run --tty --rm
-   --volume "$(pwd)":/workspace --workdir /workspace microbit -c
-   ./build.py`
+2) Build the firmware (from the project root):
+   `podman run --tty --rm --volume "$(pwd)":/workspace --workdir /workspace microbit -c ./build.py`
 
 3) Alternatively, you can start a shell and work inside the container:
-   `podman run --tty --rm --interactive --volume "$(pwd)":/workspace
-   --workdir /workspace microbit`
+   `podman run --tty --rm --interactive --volume "$(pwd)":/workspace --workdir /workspace microbit`
 
 The current directory will be shared with the container under
 `/workspace`.
 
+### Dependencies
+
+The build automatically downloads the dependencies into the
+`libraries/` directory when first invoked. The dependencies are listed
+and pinned in `codal.json`.
+
+You can update them with `./build.py --update`; it should fail loudly
+if there are any pending changes in your checkouts and/or git pulling
+is not a fast-forward.
 
 ## Flashing
 

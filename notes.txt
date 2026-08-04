@@ -164,6 +164,10 @@ in the cpp files:
 arm-none-eabi-objdump --all build/MICROBIT | grep -A 10 lua_meta
 arm-none-eabi-objdump -s --start-address=0x7fff0 --stop-address=0x80000 build/MICROBIT
 * CODAL
+** investigate
+"Two latent hazards to never reintroduce while BLE is on:
+ - instantiating CodalUSB/NRF52USB, and
+ - calling MicroBitRadio.enable() or powerOff()."
 ** config
 defaults:
 https://github.com/lancaster-university/codal-microbit-v2/blob/master/inc/MicroBitConfig.h#L162
@@ -171,6 +175,18 @@ https://github.com/microbit-foundation/codal-microbit-nrf5sdk/blob/master/sdk_co
 
 Some useful ones for debugging Bluetooth listed here:
 https://github.com/lancaster-university/codal-microbit-v2/pull/52#issuecomment-778195851
+** CODAL #upstream #issues #bugs and #PR s
+sound + BLE = panic 070
+https://github.com/lancaster-university/codal-microbit-v2/issues/506
+
+fix 070 panic
+https://github.com/lancaster-university/codal-core/pull/196
+
+fix: serial tx watchdog
+https://github.com/lancaster-university/codal-nrf52/pull/64
+
+BLE: report pc/info and flush the DMESG buffer in the SD fault handler
+https://github.com/lancaster-university/codal-microbit-v2/pull/526
 * alternatives
 ** lua
 on older v1.5 microbit, without Codal, i.e. directly on the metal
