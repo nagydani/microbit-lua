@@ -229,7 +229,7 @@ end
 local keypress = {
   ["\r"] = enter,
   ["\b"] = backspace,
-  ["\x7f"] = backspace
+  ["\127"] = backspace
 }
 
 handler[microbit.DEVICE_ID_SERIAL] = function(value)
