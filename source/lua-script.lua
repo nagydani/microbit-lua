@@ -14,8 +14,8 @@ local heart = {
 
 uBit.audio.setVolume(10)
 uBit.audio.express("giggle")
-uBit.display.animate(heart, 1000, 5)
-uBit.display.scrollAsync(uBit.friendlyName())
+-- uBit.display.animate(heart, 1000, 5)
+-- uBit.display.scrollAsync(uBit.friendlyName())
 
 local send = uBit.serial.send
 local sendAsync = uBit.serial.sendAsync
