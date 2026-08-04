@@ -21,8 +21,12 @@
     },
     "config":{
 	"DMESG_SERIAL_DEBUG": 0,
-	"CODAL_DEBUG": 0,
-        "DEVICE_BLE": 0,
+	"MICROBIT_DMESG_LEVEL": 0,
+	// Whether to compile in the BLE services.
+	// ! Must do a clean build after changing it: ./build.py --clean
+        "DEVICE_BLE": 1,
+	// Controls whether bleManager.init() is called at startup
+	"MICROBIT_BLE_ENABLED" : 1,
         "MICROBIT_BLE_PAIRING_MODE": 1,
         "MICROBIT_BLE_DFU_SERVICE": 1,
         "MICROBIT_BLE_DEVICE_INFORMATION_SERVICE": 1,
