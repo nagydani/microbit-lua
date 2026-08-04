@@ -137,6 +137,129 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+* stack diagnostics #debugging #stack #repl
+** fiber stacks: paging vs per-fiber (2026-08-04) #model
+This nrf52 port is a STACK-PAGING scheduler, not per-fiber stacks:
+ - ONE shared physical execution stack at top of RAM: [__StackLimit, __StackTop)
+   = [0x2001f800, 0x20020000) -- the linker `.stack` region, __StackSize = 0x800
+   = 2048 bytes. every fiber runs on it.
+ - each Fiber's heap buffer (stack_bottom/stack_top, grown by verify_stack_size)
+   is only cold STORAGE for the stack contents while the fiber is idle.
+ - on context switch, swap_context MEMCPYs the outgoing fiber's live frames down
+   into its buffer (store_stack), then copies the incoming fiber's buffer back up
+   onto the shared region (restore_stack). see libraries/codal-nrf52/asm/CortexContextSwitch.s:46-155.
+=> single-address-range stack guard is the CORRECT model for this port.
+live stack floor = __StackTop - __StackSize = where the heap ends.
+if any fiber's run-to-yield quantum pushes live stack below that floor, it
+collides with the (100% full) heap -> panic 020/030 / freeze / RX corruption.
+verify_stack_size resizes the storage buffer, NOT the shared region, so it cannot
+rescue an in-flight overrun during one quantum.
+
+generic CODAL (other devices) assumes growable PER-FIBER stacks: each fiber's SP
+lives in its own malloc'd buffer; verify_stack_size grows it. the nrf52 asm
+deviates by paging everything through one top-of-RAM region.
+
+** stack guard (vs per-fiber stack) #concept
+a stack guard is DETECTION, not allocation. canary word (STACK_GUARD_MAGIC
+0x5AFEC001) stamped at the stack-region bottom (stack_limit()); checked on
+every context switch in codal::schedule:
+ - canary check: word at stack_limit() still == magic?
+ - SP check (verify_stack_size): get_current_sp() < stack_limit() -> panic
+panics with DEVICE_STACK_OVERFLOW = 45 on first hit. converts silent heap
+corruption into a deterministic code. does NOT fix overflow.
+device has no MPU, so content canaries can't catch pure no-write SP jumps; but
+recursion writes contiguously, so the bottom canary is reliable for this case.
+
+** source of truth: linker, not #define (2026-08-04) #refactor
+DEVICE_STACK_SIZE / DEVICE_STACK_BASE duplicated what the linker already encodes
+(__StackSize, __StackTop) and could drift -> the very corruption the guard
+catches. now:
+ - codal-microbit-v2 fork commit 8181c8a (amended 896458f): hard assignment
+   __StackLimit = ORIGIN(RAM) + LENGTH(RAM) - __StackSize   # top-of-RAM minus stack
+ - codal-nrf52 codal_target_hal_base.cpp: stack_limit() = &__StackLimit
+ - codal-core codal_target_hal.h: declare stack_limit()
+ - codal-core CodalFiber.cpp: weak default
+   stack_limit() = fiber_initial_stack_base() - DEVICE_STACK_SIZE
+   (keeps other CODAL ports working); guard sites use stack_limit()
+ - codal-core CodalHeapAllocator.cpp: heap end = stack_limit()
+naming: stack_limit() (no "fiber" -- it's the shared-region floor); it was added
+earlier in this session as fiber_stack_limit, then renamed to stack_limit
+(2026-08-04). kept upstream
+fiber_initial_stack_base() untouched (HAL contract other CODAL ports implement).
+verified disasm: stack_limit() returns 0x2001f800 from the linker.
+nrf52833 no longer uses DEVICE_STACK_SIZE/DEVICE_STACK_BASE for guard/heap math;
+DEVICE_STACK_SIZE stays defined as the other-ports fallback.
+
+** cleanup candidate: orphaned startup .stack (2026-08-04) #mess -> DONE 2026-08-04
+build links TWO startup files: nrfx/mdk/gcc_startup_nrf52.S AND
+nrfx_mods/mdk/gcc_startup_nrf52833.S. both declare .section .stack with
+__StackLimit/__StackTop over Stack_Size = __STACK_SIZE (=8192) bytes. BUT
+nrf52833-softdevice.ld's .stack output section has NO *(.stack) input pattern
+(only ". += __stack_size" = 0x800), so those input sections are ORPHANS placed
+at VMA 0 (readelf section 24, PROGBITS, 0x2000). their __StackLimit symbol
+resolves to 0 -> do NOT read &__StackLimit.
+the FUNCTIONAL stack is the linker-script .stack (NOBITS @0x2001f800, 0x800):
+__StackTop/__stack = 0x20020000. real device stack = 2048 bytes, matching
+DEVICE_STACK_SIZE. the startup Stack_Size=8192 is currently INERT; to actually
+get an 8KB stack you'd need the .ld .stack and .heap to match. cleanup: decide
+the single authoritative startup + reconcile Stack_Size vs __stack_size.
+
+RESOLVED: /DISCARD/ : { *(.stack*) } drops the orphan startup .stack in BOTH 52833
+ld files, so its __StackLimit/__StackTop labels no longer shadow. all stack-size
+.ld work (rename __stack_size -> __StackSize, DISCARD, hard __StackLimit) now
+lives in the codal-microbit-v2 fork commit 8181c8a (amended from 896458f,
+2026-08-04) and is DELIVERED to the build via the submodule worktree, NOT the
+patches. source/nrf52833-softdevice.ld.patch and source/nrf52833.ld.patch now
+carry ONLY the lua_meta/lua_script FLASH sections. the .ld then supplies
+__StackLimit by HARD assignment (like __StackTop), NOT PROVIDE:
+a PROVIDE is weak, so GNU ld kept the discarded-section def and errored
+"defined in discarded section .stack"; the hard assignment overrides cleanly
+(matches how __StackTop always worked). C++ reads &__StackLimit = 0x2001f800.
+stack naming unified in all three nrf .lds (nrf52832 direct, nrf52833 +
+nrf52833-softdevice via fork commit): __stack_size -> __StackSize (ecosystem
+CamelCase). nrf52832.ld keeps its standard nrf52 .stack pattern (already
+collects *( .stack*) + defines __StackLimit) and only got the rename.
+no __StackSize/__StackLimit source reads outside stack_limit(). since discard
+made startup's Stack_Size symbols inert, the "reconcile Stack_Size vs
+__stack_size" cleanup decision is now moot for mapping purposes.
+
+** root cause (2026-08-04) -- CORRECTED
+paging model (see above): every fiber (incl. each lua_event_handler_fiber running
+lua_pcall) runs on ONE shared stack region [__StackLimit, __StackTop) and the
+live stack grows down toward the heap floor __StackLimit = __StackTop - 2048.
+deep lua_pcall recursion within a single run-to-yield quantum pushing past
+__StackLimit collides with the 100% full heap -> layout/timing-dependent
+corruption (020/030/freeze/RX). collectgarbage tuning pinned memory, so not
+simple Lua retention.
+
+CODAL lets the stack legitimately grow past nominal DEVICE_STACK_SIZE into free
+heap as long as it doesn't reach live heap, hence stack-guard is opt-out.
+
+** stack guard (DEVICE_NO_STACK_GUARD)
+since 2026-08-04: on by default, opt-out via DEVICE_NO_STACK_GUARD.
+CodalFiber.cpp gates (4x) flipped from #if DEVICE_STACK_GUARD to
+#ifndef DEVICE_NO_STACK_GUARD:
+ - STACK_GUARD_MAGIC 0x5AFEC001 define
+ - canary stamp in scheduler_init
+ - SP-based check in verify_stack_size
+ - canary check in schedule
+panics with DEVICE_STACK_OVERFLOW = 45 on first canary hit.
+
+** recorded finding (2026-08-04) #result
+panic 45 already triggers right after the REPL prints the prompt.
+=> the baseline (printing the prompt alone) already exceeds the nominal 2 KB
+shared execution region (live stack floor __StackLimit). next: get an SP
+high-water / stack usage value to size the region (now linker __StackSize)
+rather than trusting DEVICE_STACK_SIZE.
+
+** stack doubled to 8 KB (2026-08-04) #result
+both 52833 .ld.patch files now override __StackSize = 0x2000 (was 0x800), applied
+on top of the fork commit (which keeps __StackSize = 0x800). the change lives in
+OUR repo ONLY via the patches, not in the submodule. verified:
+__StackLimit = 0x2001e000, __StackSize = 0x2000, __StackTop = 0x20020000,
+RAM still 100% accounted (heap shrank 6 KB total), harness 19/19.
+history: doubled to 4 KB first, still saw boot-time 045 (REPL reaches the prompt,
+then panics); now 8 KB to test whether the 045 is a real stack overflow.
 * build
 rm -rf build
 cmake -B build

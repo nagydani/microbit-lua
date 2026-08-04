@@ -1,5 +1,14 @@
---- ld/nrf52833-softdevice.ld	2026-07-29 06:25:18.264168432 +0000
-+++ ld/nrf52833-softdevice-patched.ld	2026-07-29 06:40:29.966976686 +0000
+--- nrf52833-softdevice.vanilla.ld	2026-08-04 15:34:52.924109349 +0000
++++ nrf52833-softdevice.ld	2026-08-04 15:34:59.468590366 +0000
+@@ -170,7 +170,7 @@
+     } > RAM
+     __edata = .;
+ 
+-    __StackSize = 0x800;    /* DEVICE_STACK_SIZE = 2048 */
++    __StackSize = 0x2000;    /* increased: DEVICE_STACK_SIZE = 8192 */
+ 
+     .bss :
+     {
 @@ -181,6 +181,41 @@
          . = ALIGN(4);
          __bss_end__ = .;
