@@ -222,6 +222,7 @@ function tostring(o)
   return number2str(o)
 end
 
+collectgarbage("setpause", 100)
 print("micro:bit\nLua 5.1 REPL")
 
 local function execute(chunk)
@@ -263,6 +264,7 @@ local function make_session(transport)
       end
       s.buffer = ""
     end
+    collectgarbage("collect")
     s.prompt()
   end
   function s.run(f)
