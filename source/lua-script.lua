@@ -17,15 +17,51 @@ uBit.audio.express("giggle")
 -- uBit.display.animate(heart, 1000, 5)
 -- uBit.display.scrollAsync(uBit.friendlyName())
 
-local send = uBit.serial.send
-local sendAsync = uBit.serial.sendAsync
+local serial = {
+  send = uBit.serial.send,
+  getCharAsync = uBit.serial.getCharAsync,
+  eventAfterAsync = uBit.serial.eventAfterAsync,
+}
 
-local function write(s)
+local ble_uart = nil
+if uBit.ble and uBit.ble.uart then
+  ble_uart = {
+    send = uBit.ble.uart.send,
+    getCharAsync = uBit.ble.uart.getCharAsync,
+    eventAfterAsync = uBit.ble.uart.eventAfterAsync,
+  }
+end
+
+local function serial_write(s)
   for c in string.gmatch(s, ".") do
     if c == "\n" then
-      send("\r")
+      serial.send("\r")
     end
-    send(c)
+    serial.send(c)
+  end
+end
+
+local function ble_write(s)
+  if ble_uart then
+    ble_uart.send(s)
+  end
+end
+
+-- Output routing: print()/io.write() are shared globals that both the REPL
+-- engine and arbitrary user code call, and their output must go back to the
+-- session that issued the command. The destination can't be passed lexically:
+-- user chunks compile against a shared env, and event handlers
+-- (microbit.handler[...]) run with no session at all. So each session
+-- saves/restores itself as `active_session` around its event processing, and
+-- write() routes to that session's transport, falling back to serial when no
+-- session is active.
+local active_session = nil
+
+local function write(s)
+  if active_session then
+    active_session.transport.write(s)
+  else
+    serial_write(s)
   end
 end
 
@@ -113,7 +149,7 @@ local function load_with_env(code, chunkname)
 end
 
 local function is_incomplete(err)
-  return err and err:find("<eof>", 1, true) ~= nil
+  return err and err:find("near '<eof>'", 1, true) ~= nil
 end
 
 local function compile_try(code)
@@ -128,8 +164,19 @@ end
 
 local function compile(code)
   local chunk, err, incomp = compile_try(code)
-  if chunk or incomp then
-    return chunk, err, incomp
+  if incomp then
+    local e_chunk, e_err = compile_try("return " .. code)
+    if e_chunk then
+      return e_chunk, e_err
+    end
+    return chunk, err, true
+  end
+  if chunk then
+    local e_chunk, e_err = compile_try("return " .. code)
+    if e_chunk then
+      return e_chunk, e_err
+    end
+    return chunk
   end
   local e_chunk, e_err, e_incomp =
     compile_try("return " .. code)
@@ -175,15 +222,7 @@ function tostring(o)
   return number2str(o)
 end
 
-local getChar = uBit.serial.getCharAsync
-
-local buffer = ""
-
 print("micro:bit\nLua 5.1 REPL")
-
-local function prompt()
-  write(buffer == "" and "> " or ">> ")
-end
 
 local function execute(chunk)
   local results = { pcall(chunk) }
@@ -200,52 +239,162 @@ local function execute(chunk)
   end
 end
 
+-- A REPL session: a buffer plus the compile-driven submit loop. The
+-- same engine is used for the serial console and the BLE UART service.
+local function make_session(transport)
+  local s = {
+    transport = transport,
+    buffer = "",
+  }
+  function s.prompt()
+    write(s.buffer == "" and "> " or ">> ")
+  end
+  function s.submit(text)
+    s.buffer = s.buffer .. text .. "\n"
+    if s.transport.crlf_before_result then
+      write("\r\n")
+    end
+    local chunk, err, incomplete = compile(s.buffer)
+    if not incomplete then
+      if chunk then
+        execute(chunk)
+      else
+        print("Compile error: " .. tostring(err))
+      end
+      s.buffer = ""
+    end
+    s.prompt()
+  end
+  function s.run(f)
+    local saved = active_session
+    active_session = s
+    f()
+    active_session = saved
+  end
+  return s
+end
+
+local serial_session = make_session({
+  write = serial_write,
+  crlf_before_result = true,
+  getChar = serial.getCharAsync,
+  arm = function() serial.eventAfterAsync(1) end
+})
+
+local ble_session = make_session({
+  write = ble_write,
+  crlf_before_result = false,
+  getChar = ble_uart and ble_uart.getCharAsync,
+  arm = function() if ble_uart then ble_uart.eventAfterAsync(1) end end
+})
+
 local handler = { }
 
 microbit.handler = handler
 
 local function enter()
-  buffer = buffer .. "\n"
-  write("\r\n")
-  local chunk, err, incomplete = compile(buffer)
-  if not incomplete then
-    if chunk then
-      execute(chunk)
-    else
-      print("Compile error: " .. tostring(err))
-    end
-    buffer = ""
-  end
-  prompt()
+  serial_session.submit("")
 end
 
 local function backspace()
-  if #buffer > 0 then
-    buffer = buffer:sub(1, -2)
+  if #serial_session.buffer > 0 then
+    serial_session.buffer = serial_session.buffer:sub(1, -2)
     write("\b \b")
   end
 end
 
 local keypress = {
   ["\r"] = enter,
+  ["\n"] = enter,
   ["\b"] = backspace,
   ["\127"] = backspace
 }
 
 handler[microbit.DEVICE_ID_SERIAL] = function(value)
   if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
-    local c = getChar()
-    while c do
-      local input = keypress[c]
-      if input then
-        input()
-      else
-        buffer = buffer .. c
-        write(c)
+    serial_session.run(function()
+      local c = serial_session.transport.getChar()
+      local echo = ""
+      while c do
+        local input = keypress[c]
+        if input then
+          if #echo > 0 then
+            serial_write(echo)
+            echo = ""
+          end
+          input()
+        else
+          serial_session.buffer = serial_session.buffer .. c
+          echo = echo .. c
+        end
+        c = serial_session.transport.getChar()
       end
-      c = getChar()
+      if #echo > 0 then
+        serial_write(echo)
+      end
+      serial_session.transport.arm()
+    end)
+  end
+end
+
+-- BLE UART input is framed: [2-byte big-endian length][payload bytes].
+-- Payload is raw Lua source and may contain newlines. On a complete
+-- frame we hand it to the shared submit loop, which uses compile
+-- detection for multi-line continuation.
+local ble_parser = { state = "len_hi" }
+local BLE_MAX_FRAME = 1024
+local ble_greeted = false
+
+local function ble_feed(c)
+  local b = string.byte(c)
+  local st = ble_parser.state
+  if st == "len_hi" then
+    ble_parser.len_hi = b
+    ble_parser.state = "len_lo"
+  elseif st == "len_lo" then
+    local n = ble_parser.len_hi * 256 + b
+    if n == 0 then
+      ble_parser.state = "len_hi"
+      if not ble_greeted then
+        ble_greeted = true
+        write("micro:bit BLE REPL (Lua 5.1)\r\n")
+      end
+      ble_session.submit("")
+    elseif n > BLE_MAX_FRAME then
+      ble_parser.state = "len_hi"
+    else
+      ble_parser.remaining = n
+      ble_parser.payload = ""
+      ble_parser.state = "payload"
     end
-    uBit.serial.eventAfterAsync(1)
+  elseif st == "payload" then
+    ble_parser.payload = ble_parser.payload .. c
+    ble_parser.remaining = ble_parser.remaining - 1
+    if ble_parser.remaining == 0 then
+      ble_parser.state = "len_hi"
+      ble_session.submit(ble_parser.payload)
+    end
+  end
+end
+
+if microbit.MICROBIT_ID_BLE_UART then
+  handler[microbit.MICROBIT_ID_BLE_UART] = function(value)
+    if value == microbit.MICROBIT_UART_S_EVT_HEAD_MATCH then
+      ble_session.run(function()
+        local c = ble_session.transport.getChar()
+        while c do
+          ble_feed(c)
+          c = ble_session.transport.getChar()
+        end
+        ble_session.transport.arm()
+      end)
+    end
+  end
+
+  handler[microbit.MICROBIT_ID_BLE] = function(value)
+    if value == microbit.MICROBIT_BLE_EVT_DISCONNECTED then
+      ble_greeted = false
+    end
   end
 end
 
@@ -279,10 +428,13 @@ end
 -- Script-level setup (runs once before the main fiber
 -- is released):
 -- show prompt, initialise the serial RX buffer, and arm
--- the first per-char head-match event.
+-- the first per-char head-match event on both transports.
 -- After this returns, release_fiber() in main() hands
 -- control to the scheduler; on_event() handles all events 
 -- from the bus.
-prompt()
-uBit.serial.getCharAsync()
-uBit.serial.eventAfterAsync(1)
+serial_session.prompt()
+serial.getCharAsync()
+serial.eventAfterAsync(1)
+if ble_uart then
+  ble_uart.eventAfterAsync(1)
+end

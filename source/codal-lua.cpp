@@ -743,6 +743,114 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
 
 #define LUA_SERIAL_COUNT 25
 
+#if CONFIG_ENABLED(DEVICE_BLE)
+#include "MicroBitUARTService.h"
+
+extern MicroBitUARTService *uart;
+
+#define LUA_BLE_FUNCTIONS						\
+    X(send,       { if(!uart) { lua_pushnil(L); return 1; }		\
+                    ManagedString s = luaL_checkManagedString(L, 1);	\
+                    int r = uart->send(s, SYNC_SLEEP);			\
+                    if(r != DEVICE_SERIAL_IN_USE &&			\
+                       r != DEVICE_INVALID_PARAMETER) {			\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(sendAsync,  { if(!uart) { lua_pushnil(L); return 1; }		\
+                    ManagedString s = luaL_checkManagedString(L, 1);	\
+                    int r = uart->send(s, ASYNC);			\
+                    if(r != DEVICE_SERIAL_IN_USE &&			\
+                       r != DEVICE_INVALID_PARAMETER) {			\
+                      lua_pushinteger(L, r);				\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(getChar,    { if(!uart) { lua_pushnil(L); return 1; }		\
+                    char r = (char)uart->getc(SYNC_SLEEP);		\
+                    lua_pushlstring(L, &r, 1);				\
+                    return 1;						\
+                  })							\
+    X(getCharAsync, {							\
+                    if(!uart) { lua_pushnil(L); return 1; }		\
+                    int r = uart->getc(ASYNC);				\
+                    if(r != MICROBIT_NO_DATA) {				\
+                      char c = (char)r;					\
+                      lua_pushlstring(L, &c, 1);			\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(read,       { if(!uart) { lua_pushnil(L); return 1; }		\
+                    int size = luaL_checkint(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uart->read(size, SYNC_SLEEP));			\
+                    return 1;						\
+                  })							\
+    X(readAsync,  { if(!uart) { lua_pushnil(L); return 1; }		\
+                    int size = luaL_checkint(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uart->read(size, ASYNC));				\
+                    return 1;						\
+                  })							\
+    X(readUntil,  { if(!uart) { lua_pushnil(L); return 1; }		\
+                    ManagedString delimiters =				\
+                      luaL_checkManagedString(L, 1);			\
+                    lua_pushManagedString(L,				\
+                      uart->readUntil(delimiters, SYNC_SLEEP));		\
+                    return 1;						\
+                  })							\
+    X(eventOn,    { if(!uart) { return 0; }				\
+                    uart->eventOn(luaL_checkManagedString(L, 1),	\
+                                           SYNC_SLEEP);			\
+                    return 0;						\
+                  })							\
+    X(eventOnAsync, {							\
+                    if(!uart) { return 0; }				\
+                    uart->eventOn(luaL_checkManagedString(L, 1),	\
+                                           ASYNC);			\
+                    return 0;						\
+                  })							\
+    X(eventAfter, { if(!uart) { return 0; }				\
+                    uart->eventAfter(luaL_checkint(L, 1),		\
+                                           SYNC_SLEEP);			\
+                    return 0;						\
+                  })							\
+    X(eventAfterAsync, {						\
+                    if(!uart) { return 0; }				\
+                    uart->eventAfter(luaL_checkint(L, 1),		\
+                                           ASYNC);			\
+                    return 0;						\
+                  })							\
+    X(isReadable, { if(!uart) { lua_pushnil(L); return 1; }		\
+                    int r = uart->isReadable();				\
+                    if(r == 0 || r == 1) {				\
+                      lua_pushboolean(L, r == 1);			\
+                    } else {						\
+                      lua_pushnil(L);					\
+                    }							\
+                    return 1;						\
+                  })							\
+    X(rxBufferedSize, {						\
+                    if(!uart) { lua_pushnil(L); return 1; }		\
+                    lua_pushinteger(L, uart->rxBufferedSize());		\
+                    return 1;						\
+                  })							\
+    X(txBufferedSize, {						\
+                    if(!uart) { lua_pushnil(L); return 1; }		\
+                    lua_pushinteger(L, uart->txBufferedSize());		\
+                    return 1;						\
+                  })
+
+#define LUA_BLE_COUNT 14
+#endif // CONFIG_ENABLED(DEVICE_BLE)
+
 #define LUA_I2C_FUNCTIONS						\
     X(read,       { int address = luaL_checkint(L, 1);			\
                     int length = luaL_checkint(L, 2);			\
@@ -854,6 +962,17 @@ ManagedString luaL_checkManagedString(lua_State *L, int narg) {
     X(MICROBIT_RADIO_EVT_DATAGRAM) \
     X(CODAL_SERIAL_EVT_HEAD_MATCH)
 
+#if CONFIG_ENABLED(DEVICE_BLE)
+#define LUA_BLE_CONSTANTS \
+    X(MICROBIT_ID_BLE) \
+    X(MICROBIT_ID_BLE_UART) \
+    X(MICROBIT_BLE_EVT_CONNECTED) \
+    X(MICROBIT_BLE_EVT_DISCONNECTED) \
+    X(MICROBIT_UART_S_EVT_DELIM_MATCH) \
+    X(MICROBIT_UART_S_EVT_HEAD_MATCH) \
+    X(MICROBIT_UART_S_EVT_RX_FULL)
+#endif
+
 #define X(name, body) static int l_##name(lua_State *L) body
 LUA_MICROBIT_FUNCTIONS
 LUA_DISPLAY_FUNCTIONS
@@ -862,6 +981,12 @@ LUA_AUDIO_FUNCTIONS
 LUA_IO_FUNCTIONS
 LUA_SERIAL_FUNCTIONS
 #undef X
+
+#if CONFIG_ENABLED(DEVICE_BLE)
+#define X(name, body) static int l_ble_uart_##name(lua_State *L) body
+LUA_BLE_FUNCTIONS
+#undef X
+#endif
 
 #define X(name, body) static int l_compass_##name(lua_State *L) body
 LUA_COMPASS_FUNCTIONS
@@ -900,6 +1025,14 @@ static const luaL_Reg l_serial[] = {
     LUA_SERIAL_FUNCTIONS
     {NULL, NULL}
 };
+#if CONFIG_ENABLED(DEVICE_BLE)
+#define X(name, body) {#name, l_ble_uart_##name},
+static const luaL_Reg l_ble_uart[] = {
+    LUA_BLE_FUNCTIONS
+    {NULL, NULL}
+};
+#undef X
+#endif
 #undef X
 
 #define X(name, body) {#name, l_compass_##name},
@@ -949,6 +1082,13 @@ void register_lua_api(lua_State *L) {
   lua_createtable(L, 0, LUA_I2C_COUNT);
   luaL_register(L, NULL, l_i2c);
   lua_setfield(L, -2, "i2c");
+#if CONFIG_ENABLED(DEVICE_BLE)
+  lua_createtable(L, 0, 1);                 // microbit.ble
+  lua_createtable(L, 0, LUA_BLE_COUNT);
+  luaL_register(L, NULL, l_ble_uart);
+  lua_setfield(L, -2, "uart");
+  lua_setfield(L, -2, "ble");
+#endif
 
   // TODO: avoid repeated reallocations
   // CODAL event constants — use the exact C macro names so that reading
@@ -960,6 +1100,11 @@ void register_lua_api(lua_State *L) {
 #define X(n) lua_pushinteger(L, n); lua_setfield(L, microbit_idx, #n);
   LUA_CODAL_CONSTANTS
 #undef X
+#if CONFIG_ENABLED(DEVICE_BLE)
+#define X(n) lua_pushinteger(L, n); lua_setfield(L, microbit_idx, #n);
+  LUA_BLE_CONSTANTS
+#undef X
+#endif
 }
 
 static lua_State *lua_state;
