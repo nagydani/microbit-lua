@@ -20,6 +20,9 @@ uBit.display.scrollAsync(uBit.friendlyName())
 local send = uBit.serial.send
 local sendAsync = uBit.serial.sendAsync
 
+local transmit = uBit.radio.send
+local recv = uBit.radio.recv
+
 local function write(s)
   for c in string.gmatch(s, ".") do
     if c == "\n" then
@@ -249,24 +252,22 @@ handler[microbit.DEVICE_ID_SERIAL] = function(value)
   end
 end
 
-local function button(value, btn)
-  if value == microbit.DEVICE_BUTTON_EVT_CLICK then
-      uBit.display.scroll(btn)
-   elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
-      uBit.display.scroll(btn .. "!")
-  end
-end
-
 handler[microbit.DEVICE_ID_BUTTON_A] = function(value)
-  button(value, "A")
+  onButton(value, "A")
 end
 
 handler[microbit.DEVICE_ID_BUTTON_B] = function(value)
-  button(value, "B")
+  onButton(value, "B")
 end
 
 handler[microbit.DEVICE_ID_BUTTON_AB] = function(value)
-  button(value, "AB")
+  onButton(value, "AB")
+end
+
+handler[microbit.DEVICE_ID_RADIO] = function(value)
+  if value == MICROBIT_RADIO_EVT_DATAGRAM then
+    onRadioMessage(recv())
+  end
 end
 
 function on_event(source, value, timestamp)
@@ -274,6 +275,22 @@ function on_event(source, value, timestamp)
   if handle then
     handle(value, timestamp)
   end
+end
+
+-- High-level event handlers
+
+function onButton(value, btn)
+  if value == microbit.DEVICE_BUTTON_EVT_CLICK then
+      transmit(btn)
+      uBit.display.scroll(btn)
+   elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
+      transmit(btn)
+      uBit.display.scroll(btn .. "!")
+  end
+end
+
+function onRadioMessage(msg)
+  uBit.display.scroll("rx:" .. msg)
 end
 
 -- Script-level setup (runs once before the main fiber
@@ -284,5 +301,6 @@ end
 -- control to the scheduler; on_event() handles all events 
 -- from the bus.
 prompt()
+uBit.radio.enable()
 uBit.serial.getCharAsync()
 uBit.serial.eventAfterAsync(1)
