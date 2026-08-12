@@ -265,7 +265,7 @@ handler[microbit.DEVICE_ID_BUTTON_AB] = function(value)
 end
 
 handler[microbit.DEVICE_ID_RADIO] = function(value)
-  if value == MICROBIT_RADIO_EVT_DATAGRAM then
+  if value == microbit.MICROBIT_RADIO_EVT_DATAGRAM then
     onRadioMessage(recv())
   end
 end
