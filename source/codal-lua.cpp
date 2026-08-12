@@ -487,26 +487,41 @@ Pin *luaL_checkPin(lua_State *L, int narg) {
                     }							\
                     return 1;						\
                   })							\
-    X(setPullUp,  { Pin *pin = luaL_checkPin(L,1);			\
+    X(setPullUp,  { Pin *pin = luaL_checkPin(L, 1);			\
                     int r = pin->setPull((PullMode)PullUp);		\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
     X(setPullDown, {							\
-                    Pin *pin = luaL_checkPin(L,1);			\
+                    Pin *pin = luaL_checkPin(L, 1);			\
                     int r = pin->setPull((PullMode)PullDown);		\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
     X(setPullNone, {							\
-                    Pin *pin = luaL_checkPin(L,1);			\
+                    Pin *pin = luaL_checkPin(L, 1);			\
                     int r = pin->setPull((PullMode)PullNone);		\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
-    X(drainPin,   { Pin *pin = luaL_checkPin(L,1);			\
+    X(drainPin,   { Pin *pin = luaL_checkPin(L, 1);			\
                     int r = pin->drainPin();				\
                     lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    X(pulseUs,    { Pin *pin = luaL_checkPin(L, 1);			\
+                    int value = luaL_checkint(L, 2);			\
+                    uint64_t width_us = luaL_checklong(L, 3);		\
+                    int r = pin->setDigitalValue(value);		\
+                    uint64_t start = system_timer_current_time_us();	\
+                    if( r == DEVICE_OK ) {				\
+                      while(system_timer_current_time_us() - start <	\
+                            width_us) { /* busy wait */ }		\
+                      lua_pushboolean(L,				\
+                        pin->setDigitalValue(1 - value) == DEVICE_OK);	\
+                    } else {						\
+                      lua_pushboolean(L, 0);				\
+                    }							\
                     return 1;						\
                   })							\
     X(getPulseUs, { Pin *pin = luaL_checkPin(L, 1);			\
@@ -577,7 +592,7 @@ Pin *luaL_checkPin(lua_State *L, int narg) {
                     return 1;						\
                   })
 
-#define LUA_IO_COUNT 31
+#define LUA_IO_COUNT 32
 
 void lua_pushManagedString(lua_State *L, ManagedString s) {
   lua_pushlstring(L, s.toCharArray(), s.length());
