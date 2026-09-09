@@ -1,3 +1,5 @@
+-- Based on https://github.com/elecfreaks/pxt-TPBot/blob/master/V2.ts
+
 local getPin = microbit.io.getPin
 
 tpbot = {
@@ -37,4 +39,18 @@ function tpbot.get_distance()
   pulse_us(t, 1, 10)
   local r = time_pulse_us(e, 1, 25000)
   return r and r * 0.01715
+end
+
+local function hl(x)
+  local l = x % 256
+  local h = (x - l) / 256
+  return h, l
+end
+
+function tpbot.run_distance(mm)
+  if mm ~= 0 then
+    local d, f = abs(mm, 3)
+    local h, l = hl(d)
+    send(65, char(h)..char(l)..char(f))
+  end
 end
