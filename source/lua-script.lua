@@ -23,7 +23,13 @@ local serial = {
   eventAfterAsync = uBit.serial.eventAfterAsync,
 }
 
+-- Output goes wherever the session being served takes it.
+-- The serial session names no other way out, so it falls to
+-- the port.
 local function write(s)
+  local session = active_session
+  local out = session and session.transport.send
+  if out then return out(s) end
   for c in string.gmatch(s, ".") do
     if c == "\n" then
       serial.send("\r")
@@ -271,8 +277,15 @@ local keypress = {
   ["\127"] = backspace
 }
 
+-- Set while connect() has the port: what is typed goes over
+-- the link instead of into the console's own session.
+local relaying = false
+local relay
+local typed_here = ""
+
 handler[microbit.DEVICE_ID_SERIAL] = function(value)
   if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
+    if relaying then return relay() end
     serial_session.run(function()
       local c = serial_session.transport.getChar()
       local echo = ""
@@ -378,6 +391,12 @@ local function button(value, btn)
   end
 end
 
+handler[microbit.DEVICE_ID_RADIO] = function()
+  if not relaying then return end
+  local piece = microbit.radio.rx()
+  if piece then write(piece) end
+end
+
 handler[microbit.DEVICE_ID_BUTTON_A] = function(value)
   button(value, "A")
 end
@@ -395,6 +414,92 @@ function on_event(source, value, timestamp)
   if handle then
     handle(value, timestamp)
   end
+end
+
+
+-- A REPL over a radio link, and the other end of it.
+--
+-- listen(name) waits for that board to call, then serves it:
+-- what arrives over the link is typed into a session of its
+-- own, and what the session says goes back the same way.
+--
+-- connect(name, timeout) calls, then carries the port over:
+-- what is typed here goes out, what comes back is printed.
+
+local radio_session = make_session({
+  crlf_before_result = false,
+  send = function(text) microbit.radio.tx(text) end
+})
+
+
+-- A piece of the link, as much or as little as arrived: what
+-- stands before a line ending is entered, what follows it
+-- waits for the rest to come.
+local function typed(piece)
+  local at = string.find(piece, "[\r\n]")
+  while at do
+    radio_session.buffer =
+      radio_session.buffer .. piece:sub(1, at - 1)
+    radio_session.submit("")
+    piece = piece:sub(at + 1)
+    at = string.find(piece, "[\r\n]")
+  end
+  radio_session.buffer = radio_session.buffer .. piece
+end
+
+function listen(name)
+  while microbit.radio.listen() ~= name do end
+  radio_session.buffer = ""
+  radio_session.run(radio_session.prompt)
+  while true do
+    local piece = microbit.radio.rx()
+    if piece then
+      radio_session.run(function() typed(piece) end)
+    end
+    microbit.sleep(5)
+  end
+end
+
+-- Whatever has been typed since the last look
+local function typing()
+  local chars = { }
+  local c = serial.getCharAsync()
+  while c do
+    chars[#chars + 1] = c
+    c = serial.getCharAsync()
+  end
+  return table.concat(chars)
+end
+
+-- The port's turn: what was typed goes over the link, and
+-- the port is armed for the next lot. Called from the serial
+-- handler, so nothing else is reading the same characters.
+-- The port's turn. A line at a time goes over the link: tx
+-- waits to be answered, and a character each would spend
+-- that wait while the next ones pile up in the port. So the
+-- typing is echoed as it comes and held until its line is
+-- whole.
+relay = function()
+  local text = typing()
+  serial.eventAfterAsync(1)
+  write(text)
+  typed_here = typed_here .. text
+  local at = string.find(typed_here, "[\r\n]")
+  while at do
+    microbit.radio.tx(typed_here:sub(1, at))
+    typed_here = typed_here:sub(at + 1)
+    at = string.find(typed_here, "[\r\n]")
+  end
+end
+
+function connect(name, timeout)
+  if not microbit.radio.connect(name, timeout) then
+    print("Connection timed out.")
+    return
+  end
+  print(name .. " connected.")
+  typed_here = ""
+  relaying = true
 end
 
 -- Script-level setup (runs once before the main fiber
