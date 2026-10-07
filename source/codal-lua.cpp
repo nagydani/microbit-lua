@@ -221,8 +221,44 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
-    F(show,      { Image image = luaL_checkimage(L, 1);			\
-                    int r = uBit.display.print(image);			\
+    F(show,       { Image image = luaL_checkimage(L, 1);		\
+                    int x = luaL_optint(L, 2, 0);			\
+                    int y = luaL_optint(L, 3, 0);			\
+                    int alpha = luaL_optint(L, 4, 0);			\
+                    int delay = luaL_optint(L, 5,			\
+                      DISPLAY_DEFAULT_PRINT_SPEED);			\
+                    int r = uBit.display.print(				\
+                      image, x, y, alpha, delay);			\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    F(showAsync,  { Image image = luaL_checkimage(L, 1);		\
+                    int x = luaL_optint(L, 2, 0);			\
+                    int y = luaL_optint(L, 3, 0);			\
+                    int alpha = luaL_optint(L, 4, 0);			\
+                    int delay = luaL_optint(L, 5,			\
+                      DISPLAY_DEFAULT_PRINT_SPEED);			\
+                    int r = uBit.display.printAsync(			\
+                      image, x, y, alpha, delay);			\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    F(pan,        { Image image = luaL_checkimage(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_SCROLL_SPEED);			\
+                    int stride = luaL_optint(L, 3,			\
+                      DISPLAY_DEFAULT_SCROLL_STRIDE);			\
+                    int r = uBit.display.scroll(image, delay, stride);	\
+                    lua_pushboolean(L, r == DEVICE_OK);			\
+                    return 1;						\
+                  })							\
+    F(panAsync,   { Image image = luaL_checkimage(L, 1);		\
+                    int delay = luaL_optint(L, 2,			\
+                      DISPLAY_DEFAULT_SCROLL_SPEED);			\
+                    int stride = luaL_optint(L, 3,			\
+                      DISPLAY_DEFAULT_SCROLL_STRIDE);			\
+                    int r = uBit.display.scrollAsync(image, delay,	\
+                              stride);					\
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
