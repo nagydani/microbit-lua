@@ -207,8 +207,16 @@ local function make_session(send)
     end
   end
   --- What was typed: a run of plain characters goes into the
-  --- line and is echoed; the key after it erases or enters
+  --- line and is echoed; the key after it erases or enters.
+  --- Ctrl+C drops all that came before it and starts afresh.
   function s.keys(text)
+    local rest = text:match(".*\3(.*)")
+    if rest then
+      s.buffer = ""
+      write("\n")
+      s.prompt()
+      text = rest
+    end
     for plain, key in string.gmatch(text, "([^\r\n\b\127]*)(.?)") do
       if #plain > 0 then
         s.buffer = s.buffer .. plain
