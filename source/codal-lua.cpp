@@ -262,6 +262,22 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     lua_pushboolean(L, r == DEVICE_OK);			\
                     return 1;						\
                   })							\
+    F(rotateRight,{ uBit.display.rotateTo(				\
+                      MICROBIT_DISPLAY_ROTATION_90);			\
+                    return 0;						\
+                  })							\
+    F(rotateLeft, { uBit.display.rotateTo(				\
+                      MICROBIT_DISPLAY_ROTATION_270);			\
+                    return 0;						\
+                  })							\
+    F(rotateUp,   { uBit.display.rotateTo(				\
+                      MICROBIT_DISPLAY_ROTATION_0);			\
+                    return 0;						\
+                  })							\
+    F(rotateDown, { uBit.display.rotateTo(				\
+                      MICROBIT_DISPLAY_ROTATION_180);			\
+                    return 0;						\
+                  })							\
     F(setPixelValue, {							\
                     uint16_t x = (uint16_t)luaL_checkint(L, 1);		\
                     uint16_t y = (uint16_t)luaL_checkint(L, 2);		\
