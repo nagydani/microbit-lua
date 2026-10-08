@@ -333,7 +333,8 @@ end
 -- if no name is given, and from then on serves only the one
 -- that called: what arrives over the link is typed into a
 -- session of its own, and what the session says goes back the
--- same way.
+-- same way. All the while it sends beacons, which say who it
+-- is and whom it waits for; scan() elsewhere lists them.
 -- Ctrl+C or Ctrl+D on this board's own port ends it: the link
 -- is closed, and both boards are back at their consoles.
 --
@@ -341,7 +342,8 @@ end
 -- what is typed here goes out, what comes back goes on the
 -- port as it is, and the console here says no more. Ctrl+D
 -- hands the port back to the console; the far end keeps
--- listening, so the link can be made again.
+-- listening, so the link can be made again. A link whose far
+-- end has gone quiet, with no beacon for a while, is over too.
 
 local radio_session = make_session(radio.tx)
 
@@ -355,6 +357,7 @@ end
 function listen(name)
   radio.enable()
   while not typing():find("[\3\4]") do
+    radio.beacon(name)
     local caller = radio.answered(name)
     if caller then
       name = caller
@@ -369,8 +372,10 @@ function listen(name)
   radio.close()
 end
 
---- The port and the console's voice go back to the console
+--- The link is closed, and the port and the console's voice
+--- go back to the console
 local function disconnect()
+  radio.close()
   typed_to = to_console
   handler[microbit.DEVICE_ID_RADIO] = nil
   serial_session.send = nil

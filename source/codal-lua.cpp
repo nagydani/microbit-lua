@@ -1155,6 +1155,7 @@ static int nezha2_send(lua_State *L, int b3, int b4, int b5, int b6, int b7) {
 #define RADIO_DATA     0xA3
 #define RADIO_ACK      0xA4
 #define RADIO_BYE      0xA5
+#define RADIO_BEACON   0xA6
 
 #define RADIO_TRIES    8
 #define RADIO_WAIT     30
@@ -1162,10 +1163,24 @@ static int nezha2_send(lua_State *L, int b3, int b4, int b5, int b6, int b7) {
 /* How long connect waits when nobody says otherwise */
 #define RADIO_TIMEOUT  5000
 
+/* A listening board sends a beacon every one to two seconds,
+ * the gap drawn afresh each time, so that two boards do not
+ * keep sending together. A calling board that hears none for
+ * three of the longest gaps takes the link for lost; while it
+ * calls, a radio event comes this often, so that it notices
+ * the silence even when nothing else arrives. */
+#define RADIO_BEACON_GAP 1000
+#define RADIO_SILENCE  (3 * 2 * RADIO_BEACON_GAP)
+#define RADIO_TICK     500
+#define RADIO_EVT_TICK (MICROBIT_RADIO_EVT_DATAGRAM + 1)
+
 static uint8_t radio_link = 0;
 static char radio_peer[RADIO_NAME + 1];
 static uint8_t radio_out = 0;   /* number of the last sent */
 static uint8_t radio_in = 0;    /* number of the last taken */
+static bool radio_calling = false;      /* this end called */
+static uint64_t radio_heard = 0;        /* the far end's last beacon */
+static uint64_t radio_beacon_due = 0;
 
 /* kind, link, number, then body */
 static int radio_put(uint8_t kind, uint8_t link, uint8_t num,
@@ -1223,6 +1238,15 @@ static bool radio_take(uint8_t kind, uint8_t link,
     int n = p.length();
     if (radio_wanted(p.getBytes(), n, kind, link, from,
                      num, body, len)) return true;
+    /* Beacons come every second or two and are never held; a
+     * calling board notes the one from the board it called */
+    if (n > 0 && p.getBytes()[0] == RADIO_BEACON) {
+        if (radio_calling && n >= RADIO_HEAD + RADIO_NAME
+            && memcmp(p.getBytes() + RADIO_HEAD, radio_peer,
+                      RADIO_NAME) == 0)
+            radio_heard = uBit.systemTime();
+        return false;
+    }
     if (n > 0 && n <= (int)sizeof(radio_held)) {
         memcpy(radio_held, p.getBytes(), n);
         radio_held_len = n;
@@ -1230,9 +1254,19 @@ static bool radio_take(uint8_t kind, uint8_t link,
     return false;
 }
 
-/* Both ends start a link the same way */
+/* The link is over at this end, and the ticks a call brings
+ * stop with it */
+static void radio_drop()
+{
+    system_timer_cancel_event(DEVICE_ID_RADIO, RADIO_EVT_TICK);
+    radio_link = 0;
+    radio_calling = false;
+}
+
+/* Both ends start a link the same way, from none */
 static void radio_open(uint8_t link, const char *peer)
 {
+    radio_drop();
     radio_link = link;
     radio_held_len = 0;
     radio_out = 0;
@@ -1393,6 +1427,10 @@ static bool radio_one(uint8_t kind, const char *body, int len)
                     while (uBit.systemTime() < deadline) {		\
                       if (radio_called(link, hello)) {			\
                         radio_open(link, them);				\
+                        radio_calling = true;				\
+                        radio_heard = uBit.systemTime();		\
+                        system_timer_event_every(RADIO_TICK,		\
+                          DEVICE_ID_RADIO, RADIO_EVT_TICK);		\
                         lua_pushboolean(L, 1);				\
                         return 1;					\
                       }							\
@@ -1422,10 +1460,11 @@ static bool radio_one(uint8_t kind, const char *body, int len)
                     lua_pushboolean(L, 1);				\
                     return 1;						\
                   })							\
-/* rx() -> string, nil, or false once the far end has closed
- * the link. One piece, acknowledged. A piece that arrives
- * twice is acknowledged again and dropped: the far end did
- * not hear the first answer. */					\
+/* rx() -> string, nil, or false once the link is over: the
+ * far end has closed it, or, at the calling end, has sent no
+ * beacon for too long. One piece, acknowledged. A piece that
+ * arrives twice is acknowledged again and dropped: the far
+ * end did not hear the first answer. */				\
     F(rx,         { uint8_t body[RADIO_BODY];				\
                     uint8_t num;					\
                     int len;						\
@@ -1433,10 +1472,14 @@ static bool radio_one(uint8_t kind, const char *body, int len)
                       lua_pushnil(L);					\
                       return 1;						\
                     }							\
-                    if (radio_take(RADIO_BYE, radio_link, NULL, &num,	\
-                                   NULL, NULL)) {			\
+                    bool bye = radio_take(RADIO_BYE, radio_link, NULL,	\
+                                          &num, NULL, NULL);		\
+                    if (bye) {						\
                       radio_put(RADIO_ACK, radio_link, num, NULL, 0);	\
-                      radio_link = 0;					\
+                    }							\
+                    if (bye || (radio_calling && uBit.systemTime()	\
+                                - radio_heard > RADIO_SILENCE)) {	\
+                      radio_drop();					\
                       lua_pushboolean(L, 0);				\
                       return 1;						\
                     }							\
@@ -1458,9 +1501,49 @@ static bool radio_one(uint8_t kind, const char *body, int len)
  * this end drops it */							\
     F(close,      { if (radio_link != 0) {				\
                       radio_one(RADIO_BYE, NULL, 0);			\
-                      radio_link = 0;					\
+                      radio_drop();					\
                     }							\
                     return 0;						\
+                  })							\
+/* beacon([name]) -- once one is due, a listening board says
+ * who it is and, with a name, which board it waits for */		\
+    F(beacon,     { const char *awaited = radio_opt_name(L, 1);		\
+                    char b[RADIO_NAME * 2];				\
+                    if (uBit.systemTime() < radio_beacon_due) return 0;	\
+                    memcpy(b, microbit_friendly_name(), RADIO_NAME);	\
+                    if (awaited) memcpy(b + RADIO_NAME, awaited, RADIO_NAME); \
+                    radio_put(RADIO_BEACON, 0, 0, b,			\
+                      awaited ? RADIO_NAME * 2 : RADIO_NAME);		\
+                    radio_beacon_due = uBit.systemTime()		\
+                      + RADIO_BEACON_GAP + uBit.random(RADIO_BEACON_GAP); \
+                    return 0;						\
+                  })							\
+/* scan() -> {friendlyName = boolean}: the boards whose
+ * beacons are heard within three of the longest gaps, each
+ * true if it waits for this board, false if for another */		\
+    F(scan,       { const char *us = microbit_friendly_name();		\
+                    uint8_t body[RADIO_BODY];				\
+                    int len;						\
+                    uint64_t until = uBit.systemTime() + RADIO_SILENCE;	\
+                    uBit.radio.enable();				\
+                    /* Whatever was queued before the scan is old: those
+                     * boards may have stopped listening since */	\
+                    while (!(uBit.radio.datagram.recv()			\
+                             == PacketBuffer::EmptyPacket)) {		\
+                    }							\
+                    lua_newtable(L);					\
+                    while (uBit.systemTime() < until) {			\
+                      if (!radio_take(RADIO_BEACON, 0, NULL, NULL, body, \
+                                      &len) || len < RADIO_NAME) {	\
+                        uBit.sleep(1);					\
+                        continue;					\
+                      }							\
+                      lua_pushlstring(L, (const char *)body, RADIO_NAME); \
+                      lua_pushboolean(L, len < RADIO_NAME * 2		\
+                        || memcmp(body + RADIO_NAME, us, RADIO_NAME) == 0); \
+                      lua_rawset(L, -3);				\
+                    }							\
+                    return 1;						\
                   })							\
 /* answered([name]) -> friendlyName if somebody, or with a
  * name that board, has just called again, or nil */		\
@@ -1473,7 +1556,7 @@ static bool radio_one(uint8_t kind, const char *body, int len)
                     return 1;						\
                   })
 
-#define LUA_RADIO_COUNT 13
+#define LUA_RADIO_COUNT 15
 
 const int digitalRJ[] = { 8, 12, 14, 16 };
 
