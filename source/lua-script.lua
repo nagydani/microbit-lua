@@ -329,9 +329,11 @@ end
 -- that was reset, or lost the link — is taken as it comes,
 -- and the session starts over for it.
 --
--- listen(name) waits for that board to call, then serves it:
--- what arrives over the link is typed into a session of its
--- own, and what the session says goes back the same way.
+-- listen(name) waits for that board to call, or for any board
+-- if no name is given, and from then on serves only the one
+-- that called: what arrives over the link is typed into a
+-- session of its own, and what the session says goes back the
+-- same way.
 -- Ctrl+C or Ctrl+D on this board's own port ends it: the link
 -- is closed, and both boards are back at their consoles.
 --
@@ -353,7 +355,11 @@ end
 function listen(name)
   radio.enable()
   while not typing():find("[\3\4]") do
-    if radio.answered(name) then greet() end
+    local caller = radio.answered(name)
+    if caller then
+      name = caller
+      greet()
+    end
     local piece = radio.rx()
     if piece then
       radio_session.run(function() radio_session.keys(piece) end)
