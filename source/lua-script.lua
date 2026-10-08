@@ -255,27 +255,26 @@ local function typing()
   return table.concat(chars)
 end
 
--- A handler for the port that gives what is typed to take, a
--- piece at a time, and watches the port again only once it is
--- empty: a piece is dealt with before the next one is taken.
-local function port_to(take)
-  return function(value)
-    if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
-      local text = typing()
-      while #text > 0 do
-        take(text)
-        text = typing()
-      end
-      serial.eventAfterAsync(1)
-    end
-  end
+local function to_console(text)
+  serial_session.run(function() serial_session.keys(text) end)
 end
 
-local port_to_console = port_to(function(text)
-  serial_session.run(function() serial_session.keys(text) end)
-end)
+-- Where what is typed goes: the console's own session, or the
+-- link while connect() has one open. The port is watched again
+-- only once it is empty: a piece is dealt with before the next
+-- one is taken.
+local typed_to = to_console
 
-handler[microbit.DEVICE_ID_SERIAL] = port_to_console
+handler[microbit.DEVICE_ID_SERIAL] = function(value)
+  if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
+    local text = typing()
+    while #text > 0 do
+      typed_to(text)
+      text = typing()
+    end
+    serial.eventAfterAsync(1)
+  end
+end
 
 function robot_move(left, right, time)
   tpbot.set_motors_speed(left, right)
@@ -333,10 +332,14 @@ end
 -- listen(name) waits for that board to call, then serves it:
 -- what arrives over the link is typed into a session of its
 -- own, and what the session says goes back the same way.
+-- Ctrl+C or Ctrl+D on this board's own port ends it: the link
+-- is closed, and both boards are back at their consoles.
 --
 -- connect(name, timeout) calls, then carries the port over:
 -- what is typed here goes out, what comes back goes on the
--- port as it is, and the console here says no more.
+-- port as it is, and the console here says no more. Ctrl+D
+-- hands the port back to the console; the far end keeps
+-- listening, so the link can be made again.
 
 local radio_session = make_session(radio.tx)
 
@@ -349,9 +352,7 @@ end
 
 function listen(name)
   radio.enable()
-  radio.listen(name)
-  greet()
-  while true do
+  while not typing():find("[\3\4]") do
     if radio.answered(name) then greet() end
     local piece = radio.rx()
     if piece then
@@ -359,21 +360,45 @@ function listen(name)
     end
     microbit.sleep(5)
   end
+  radio.close()
 end
 
--- Whoever has the port serves it: the console's own session
--- to start with, the link once connect() has opened one.
--- connect puts the other one in place; nothing asks which.
--- What is typed goes over as it is, and the far end echoes
--- and edits it, as a session does with what comes from its
--- port. tx waits to be answered; what is typed meanwhile
--- waits in the port and goes with the next piece.
-local port_to_link = port_to(radio.tx)
+--- The port and the console's voice go back to the console
+local function disconnect()
+  typed_to = to_console
+  handler[microbit.DEVICE_ID_RADIO] = nil
+  serial_session.send = nil
+  write("\n")
+  serial_session.prompt()
+end
 
---- What the link says goes to the port
+-- What is typed goes over as it is, and the far end echoes and
+-- edits it, as a session does with what comes from its port.
+-- tx waits to be answered; what is typed meanwhile waits in
+-- the port and goes with the next piece. What comes before a
+-- Ctrl+D still goes over; what follows it is for the console.
+local function to_link(text)
+  local before, after = text:match("^([^\4]*)\4(.*)")
+  if not before then
+    radio.tx(text)
+    return
+  end
+  if #before > 0 then
+    radio.tx(before)
+  end
+  disconnect()
+  to_console(after)
+end
+
+--- What the link says goes to the port; false is the far end
+--- closing it
 local function link_to_port()
   local piece = radio.rx()
-  if piece then serial.send(piece) end
+  if piece then
+    serial.send(piece)
+  elseif piece == false then
+    disconnect()
+  end
 end
 
 function connect(name, timeout)
@@ -383,7 +408,7 @@ function connect(name, timeout)
     return
   end
   print(name .. " connected.")
-  handler[microbit.DEVICE_ID_SERIAL] = port_to_link
+  typed_to = to_link
   handler[microbit.DEVICE_ID_RADIO] = link_to_port
   serial_session.send = function() end
 end
