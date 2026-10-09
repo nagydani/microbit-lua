@@ -1,7 +1,8 @@
 local uBit = require("microbit")
-require("microbit.audio")
-require("microbit.display")
 require("microbit.accelerometer")
+require("microbit.io")
+local audio = require("microbit.audio")
+local display = require("microbit.display")
 local radio = require("microbit.radio")
 local serial = require("microbit.serial")
 
@@ -17,9 +18,9 @@ local heart = {
   )
 }
 
-uBit.audio.express("giggle")
-uBit.display.animate(heart, 1000, 5)
-uBit.display.scrollAsync(uBit.friendlyName())
+audio.express("giggle")
+display.animate(heart, 1000, 5)
+display.scrollAsync(uBit.friendlyName())
 
 -- Output goes wherever the session being served takes it, a
 -- line ending in CR LF as on the port. The serial session
@@ -305,19 +306,28 @@ local wink_B = {
   )
 }
 
+local squint = {
+  height = 2,
+  width = 5,
+  data = string.char(
+      0,   0,   0,   0,   0,
+    255, 255,   0, 255, 255
+  )
+}
+
 local function button(value, wink)
   if value == uBit.DEVICE_BUTTON_EVT_DOWN then
-    uBit.display.show(wink)
+    display.show(wink)
   elseif value == uBit.DEVICE_BUTTON_EVT_UP then
-    uBit.display.show(smiley)
+    display.show(smiley)
   end
 end
 
 gesture = {
-  [uBit.ACCELEROMETER_EVT_TILT_UP] = uBit.display.rotateUp,
-  [uBit.ACCELEROMETER_EVT_TILT_DOWN] = uBit.display.rotateDown,
-  [uBit.ACCELEROMETER_EVT_TILT_LEFT] = uBit.display.rotateLeft,
-  [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = uBit.display.rotateRight
+  [uBit.ACCELEROMETER_EVT_TILT_UP] = display.rotateUp,
+  [uBit.ACCELEROMETER_EVT_TILT_DOWN] = display.rotateDown,
+  [uBit.ACCELEROMETER_EVT_TILT_LEFT] = display.rotateLeft,
+  [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = display.rotateRight
 }
 
 handler[uBit.DEVICE_ID_BUTTON_A] = function(value)
@@ -328,9 +338,13 @@ handler[uBit.DEVICE_ID_BUTTON_B] = function(value)
   button(value, wink_B)
 end
 
+handler[uBit.MICROBIT_ID_LOGO] = function(value)
+  button(value, squint)
+end
+
 handler[uBit.DEVICE_ID_DISPLAY] = function(value)
   if value == uBit.DISPLAY_EVT_ANIMATION_COMPLETE then
-    uBit.display.show(smiley)
+    display.show(smiley)
   end
 end
 
