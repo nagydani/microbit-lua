@@ -1,9 +1,9 @@
 local uBit = require("microbit")
 require("microbit.audio")
 require("microbit.display")
+require("microbit.accelerometer")
 local radio = require("microbit.radio")
 local serial = require("microbit.serial")
-local tpbot = require("tpbot2")
 
 local heart = {
   width = 10,
@@ -17,7 +17,6 @@ local heart = {
   )
 }
 
-uBit.audio.setVolume(20)
 uBit.audio.express("giggle")
 uBit.display.animate(heart, 1000, 5)
 uBit.display.scrollAsync(uBit.friendlyName())
@@ -242,7 +241,7 @@ local serial_session = make_session()
 
 local handler = { }
 
-microbit.handler = handler
+uBit.handler = handler
 
 -- Whatever has been typed since the last look
 local function typing()
@@ -265,8 +264,8 @@ end
 -- one is taken.
 local typed_to = to_console
 
-handler[microbit.DEVICE_ID_SERIAL] = function(value)
-  if value == microbit.CODAL_SERIAL_EVT_HEAD_MATCH then
+handler[uBit.DEVICE_ID_SERIAL] = function(value)
+  if value == uBit.CODAL_SERIAL_EVT_HEAD_MATCH then
     local text = typing()
     while #text > 0 do
       typed_to(text)
@@ -276,42 +275,70 @@ handler[microbit.DEVICE_ID_SERIAL] = function(value)
   end
 end
 
-function robot_move(left, right, time)
-  tpbot.set_motors_speed(left, right)
-  microbit.sleep(1000 * time)
-  tpbot.set_motors_speed(0, 0)
-end
+local smiley = {
+  height = 5,
+  width = 5,
+  data = string.char(
+      0, 255,   0, 255,   0,
+      0, 255,   0, 255,   0,
+      0,   0,   0,   0,   0,
+    255,   0,   0,   0, 255,
+      0, 255, 255, 255,   0
+  )
+}
 
-function turn(h)
-  h = h % 12
-  if 6 < h then
-    h = h - 12
+local wink_A = {
+  height = 2,
+  width = 5,
+  data = string.char(
+      0,   0,   0, 255,   0,
+    255, 255,   0, 255,   0
+  )
+}
+
+local wink_B = {
+  height = 2,
+  width = 5,
+  data = string.char(
+      0, 255,   0,   0,   0,
+      0, 255,   0, 255, 255
+  )
+}
+
+local function button(value, wink)
+  if value == uBit.DEVICE_BUTTON_EVT_DOWN then
+    uBit.display.show(wink)
+  elseif value == uBit.DEVICE_BUTTON_EVT_UP then
+    uBit.display.show(smiley)
   end
-  tpbot.turn(-30 * h)
 end
 
-function straight(l)
-  tpbot.run_distance(145 * l)
+gesture = {
+  [uBit.ACCELEROMETER_EVT_TILT_UP] = uBit.display.rotateUp,
+  [uBit.ACCELEROMETER_EVT_TILT_DOWN] = uBit.display.rotateDown,
+  [uBit.ACCELEROMETER_EVT_TILT_LEFT] = uBit.display.rotateLeft,
+  [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = uBit.display.rotateRight
+}
+
+handler[uBit.DEVICE_ID_BUTTON_A] = function(value)
+  button(value, wink_A)
 end
 
-local function button(value, btn)
-  if value == microbit.DEVICE_BUTTON_EVT_CLICK then
-      uBit.display.scroll(btn)
-   elseif value == microbit.DEVICE_BUTTON_EVT_LONG_CLICK then
-      uBit.display.scroll(btn .. "!")
+handler[uBit.DEVICE_ID_BUTTON_B] = function(value)
+  button(value, wink_B)
+end
+
+handler[uBit.DEVICE_ID_DISPLAY] = function(value)
+  if value == uBit.DISPLAY_EVT_ANIMATION_COMPLETE then
+    uBit.display.show(smiley)
   end
 end
 
-handler[microbit.DEVICE_ID_BUTTON_A] = function(value)
-  button(value, "A")
-end
-
-handler[microbit.DEVICE_ID_BUTTON_B] = function(value)
-  button(value, "B")
-end
-
-handler[microbit.DEVICE_ID_BUTTON_AB] = function(value)
-  button(value, "AB")
+handler[uBit.DEVICE_ID_GESTURE] = function(value)
+  local sensed = gesture[value]
+  if sensed then
+    sensed()
+  end
 end
 
 function on_event(source, value, timestamp)
@@ -321,6 +348,8 @@ function on_event(source, value, timestamp)
   end
 end
 
+-- Gesture sensing requires accelerometer initialization
+uBit.accelerometer.getSample()
 
 -- A REPL over a radio link, and the other end of it.
 --
@@ -367,7 +396,7 @@ function listen(name)
     if piece then
       radio_session.run(function() radio_session.keys(piece) end)
     end
-    microbit.sleep(5)
+    uBit.sleep(5)
   end
   radio.close()
 end
@@ -377,7 +406,7 @@ end
 local function disconnect()
   radio.close()
   typed_to = to_console
-  handler[microbit.DEVICE_ID_RADIO] = nil
+  handler[uBit.DEVICE_ID_RADIO] = nil
   serial_session.send = nil
   write("\n")
   serial_session.prompt()
@@ -420,7 +449,7 @@ function connect(name, timeout)
   end
   print(name .. " connected.")
   typed_to = to_link
-  handler[microbit.DEVICE_ID_RADIO] = link_to_port
+  handler[uBit.DEVICE_ID_RADIO] = link_to_port
   serial_session.send = function() end
 end
 

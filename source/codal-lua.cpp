@@ -225,8 +225,7 @@ Image luaL_checkimage(lua_State *L, int narg) {
                     int x = luaL_optint(L, 2, 0);			\
                     int y = luaL_optint(L, 3, 0);			\
                     int alpha = luaL_optint(L, 4, 0);			\
-                    int delay = luaL_optint(L, 5,			\
-                      DISPLAY_DEFAULT_PRINT_SPEED);			\
+                    int delay = luaL_optint(L, 5, 0);			\
                     int r = uBit.display.print(				\
                       image, x, y, alpha, delay);			\
                     lua_pushboolean(L, r == DEVICE_OK);			\
@@ -1590,6 +1589,7 @@ const int digitalRJ[] = { 8, 12, 14, 16 };
     C(DEVICE_ID_BUTTON_A) \
     C(DEVICE_ID_BUTTON_B) \
     C(DEVICE_ID_BUTTON_AB) \
+    C(DEVICE_ID_DISPLAY) \
     C(DEVICE_ID_SERIAL) \
     C(DEVICE_ID_ACCELEROMETER) \
     C(DEVICE_ID_COMPASS) \
@@ -1614,6 +1614,9 @@ const int digitalRJ[] = { 8, 12, 14, 16 };
     C(COMPASS_EVT_CONFIG_NEEDED) \
     C(COMPASS_EVT_CALIBRATE) \
     C(COMPASS_EVT_CALIBRATION_NEEDED) \
+    C(DISPLAY_EVT_ANIMATION_COMPLETE) \
+    C(DISPLAY_EVT_FREE) \
+    C(LED_MATRIX_EVT_LIGHT_SENSE) \
     C(DEVICE_BUTTON_EVT_DOWN) \
     C(DEVICE_BUTTON_EVT_UP) \
     C(DEVICE_BUTTON_EVT_CLICK) \
