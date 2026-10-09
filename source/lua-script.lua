@@ -327,7 +327,10 @@ gesture = {
   [uBit.ACCELEROMETER_EVT_TILT_UP] = display.rotateUp,
   [uBit.ACCELEROMETER_EVT_TILT_DOWN] = display.rotateDown,
   [uBit.ACCELEROMETER_EVT_TILT_LEFT] = display.rotateLeft,
-  [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = display.rotateRight
+  [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = display.rotateRight,
+  [uBit.ACCELEROMETER_EVT_SHAKE] = function()
+    audio.express("hello")
+  end
 }
 
 handler[uBit.DEVICE_ID_BUTTON_A] = function(value)
