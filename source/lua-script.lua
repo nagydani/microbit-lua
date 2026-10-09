@@ -325,6 +325,7 @@ end
 
 gesture = {
   [uBit.ACCELEROMETER_EVT_TILT_UP] = display.rotateUp,
+  [uBit.ACCELEROMETER_EVT_FACE_UP] = display.rotateUp,
   [uBit.ACCELEROMETER_EVT_TILT_DOWN] = display.rotateDown,
   [uBit.ACCELEROMETER_EVT_TILT_LEFT] = display.rotateLeft,
   [uBit.ACCELEROMETER_EVT_TILT_RIGHT] = display.rotateRight,
