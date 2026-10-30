@@ -1082,6 +1082,17 @@ static int nezha2_send(lua_State *L, int b3, int b4, int b5, int b6, int b7) {
   return robot_send(L, data, 8);
 }
 
+int32_t nezha2_motor_travel(lua_State *L) {
+  uint8_t p[4];
+  nezha2_send(L, 0, 70, 0, 245, 0);
+  uBit.sleep(4);
+  robot_read(L, p, 4);
+  return (int32_t) p[0] |
+         (int32_t) p[1] << 8 |
+         (int32_t) p[2] << 16 |
+         (int32_t) p[3] << 24;
+}
+
 #define LUA_NEZHA2_FUNCTIONS						\
     F(motor_turn, {							\
                     int amount = luaL_checkint(L, 2);			\
@@ -1103,14 +1114,15 @@ static int nezha2_send(lua_State *L, int b3, int b4, int b5, int b6, int b7) {
                     return nezha2_send(L, speed < 0 ? 2 : 1, 96,	\
                       robot_byte(L, 2, abs(speed)), 245, 0);		\
                   })							\
+    F(motor_travel, {							\
+                    lua_pushnumber(L,					\
+                      0.1 * (lua_Number)nezha2_motor_travel(L));	\
+                    return 1;						\
+                  })							\
     F(motor_position, {							\
-                    uint8_t p[4];					\
-                    nezha2_send(L, 0, 70, 0, 245, 0);			\
-                    uBit.sleep(4);					\
-                    robot_read(L, p, 4);				\
-                    uint32_t v = p[0] | p[1] << 8 | p[2] << 16 |	\
-                      (uint32_t)p[3] << 24;				\
-                    lua_pushnumber(L, (v % 3600) * 0.1f);		\
+                    int p = nezha2_motor_travel(L) % 3600;		\
+                    lua_pushnumber(L,					\
+                      0.1 * (lua_Number)(p < 0 ? p + 3600 : p));	\
                     return 1;						\
                   })							\
     F(motor_speed, {							\
