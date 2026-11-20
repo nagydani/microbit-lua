@@ -565,6 +565,45 @@ function turn(h)
   tpbot.turn(-30 * h)
 end
 
+local light = tpbot.set_car_light
+
+local function abort(condition)
+  while tpbot.busy() do
+    microbit.sleep(100)
+    if (condition()) then
+      tpbot.set_motors_speed(0, 0)
+      return true
+    end
+  end
+  return false
+end
+
+function seek(d)
+  d = d or (math.random() < 0.5 and -1 or 1)
+  light(0, 0, 255)
+  tpbot.turn(360 * d)
+  if abort(function()
+    local dist = tpbot.get_distance()
+    return dist and 30 < dist and dist < 250
+  end)
+  then
+    light(255, 0, 0)
+  else
+    light(0, 0, 0)
+  end
+end
+
+function push(d)
+  d = d or 10
+  light(255, 0, 0)
+  straight(d)
+  abort(function()
+    local dist = tpbot.get_distance()
+    return (dist and 500 < dist) or not dist
+  end)
+  light(0, 0, 0)
+end
+
 -- Script-level setup (runs once before the main fiber
 -- is released):
 -- show the prompt, then take what was typed while the
@@ -574,3 +613,4 @@ end
 -- all events from the bus, one at a time.
 serial_session.prompt()
 handler[uBit.DEVICE_ID_SERIAL](uBit.CODAL_SERIAL_EVT_HEAD_MATCH)
+listen()
