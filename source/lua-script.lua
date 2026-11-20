@@ -1,6 +1,7 @@
 local uBit = require("microbit")
 require("microbit.accelerometer")
 require("microbit.io")
+tpbot = require("tpbot2")
 local audio = require("microbit.audio")
 local display = require("microbit.display")
 local radio = require("microbit.radio")
@@ -550,6 +551,18 @@ function connect(name, timeout, tries)
   typed_to = to_link
   handler[uBit.DEVICE_ID_RADIO] = link_to_port
   serial_session.send = function() end
+end
+
+function straight(r)
+  tpbot.run_distance(115 * r)
+end
+
+function turn(h)
+  h = h % 12
+  if h > 6 then
+    h = h - 12
+  end
+  tpbot.turn(-30 * h)
 end
 
 -- Script-level setup (runs once before the main fiber
