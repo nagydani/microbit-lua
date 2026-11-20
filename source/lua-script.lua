@@ -613,4 +613,4 @@ end
 -- all events from the bus, one at a time.
 serial_session.prompt()
 handler[uBit.DEVICE_ID_SERIAL](uBit.CODAL_SERIAL_EVT_HEAD_MATCH)
-listen()
+
