@@ -1398,6 +1398,35 @@ static int tpbot2_watch_line(lua_State *L) {
   return watch_line(L, "tpbot2");
 }
 
+struct DelayedTask {
+  uint32_t delay;
+  void (*callback)();
+};
+
+void delayTask(void *p) {
+  DelayedTask *task = (DelayedTask *)p;
+  fiber_sleep(task->delay);
+  task->callback();
+  delete task;
+}
+
+void after(uint32_t delay, void (*callback)()) {
+  DelayedTask *task = new DelayedTask{delay, callback};
+  create_fiber(delayTask, task);
+}
+
+// Stop joystick:bit vibration
+void stop_vibrate() {
+  uBit.io.P16.setDigitalValue(1);
+}
+
+#define LUA_JOYSTICK_FUNCTIONS						\
+    F(vibrate,    { int time = luaL_optint(L, 1, 1000);			\
+                    uBit.io.P16.setDigitalValue(0);			\
+                    after((uint32_t)time, stop_vibrate);		\
+                    return(0);						\
+    })
+
 // Nezha 2 takes 8-byte commands: 255, 249, the motor (argument 1), then
 // five bytes.
 static int nezha2_send(lua_State *L, int b3, int b4, int b5, int b6, int b7) {
@@ -2280,6 +2309,10 @@ LUA_I2C_FUNCTIONS
 LUA_ROBOT_FUNCTIONS
 #undef F
 
+#define F(name, body) static int l_joystick_##name(lua_State *L) body
+LUA_JOYSTICK_FUNCTIONS
+#undef F
+
 #define F(name, body) static int l_nezha2_##name(lua_State *L) body
 LUA_NEZHA2_FUNCTIONS
 #undef F
@@ -2384,6 +2417,13 @@ static const LuaApi l_tpbot2[] = {
 #define F(name, body) {#name, l_robot_##name, 0},
 static const LuaApi l_robot[] = {
     LUA_ROBOT_FUNCTIONS
+    {NULL, NULL, 0}
+};
+#undef F
+
+#define F(name, body) {#name, l_joystick_##name, 0},
+static const LuaApi l_joystick[] = {
+    LUA_JOYSTICK_FUNCTIONS
     {NULL, NULL, 0}
 };
 #undef F
@@ -2541,6 +2581,7 @@ static const LuaModule lua_modules[] = {
   {"tpbot",                  l_tpbot},
   {"robot",                  l_robot},
   {"tpbot2",                 l_tpbot2},
+  {"joystick",               l_joystick},
   {"nezha2",                 l_nezha2},
   {NULL, NULL}
 };
